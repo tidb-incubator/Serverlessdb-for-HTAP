@@ -27,7 +27,7 @@
 
   ​	In order to implement tidb serverless, we designed the proxy module and serverless module. The proxy module does permission control, computation under low load, and traffic forwarding under high load, while the serverless module mainly manages tidb-server instances and smoothly scales tidb-server.
 
-  ![architecture](https://github.com/tidb-incubator/Serverlessdb-for-HTAP/blob/master/docs/architecture.png)
+  ![architecture](https://github.com/tidb-incubator/Serverlessdb-for-HTAP/blob/main/docs/architecture.png)
   
 
   ### proxy module
