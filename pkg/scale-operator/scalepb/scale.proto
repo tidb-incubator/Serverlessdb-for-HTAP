@@ -1,0 +1,31 @@
+syntax = "proto3";
+package scalepb;
+
+service Scale {
+  rpc UpdateRule (UpdateRequest) returns (UpdateReply) {}
+  rpc ScaleCluster (ScaleRequest) returns (UpdateReply) {}
+  rpc AutoScalerCluster (AutoScaleRequest) returns (UpdateReply) {}
+}
+
+message UpdateRequest {
+  string clustername = 1;
+  string namespace = 2;
+}
+
+message UpdateReply {
+  bool success = 1;
+}
+
+message ScaleRequest {
+  string clustername = 1;
+  string namespace = 2;
+  float hashrate = 3;
+}
+
+message AutoScaleRequest {
+    string clustername = 1;
+    string namespace = 2;
+    float hashrate = 3;
+    int64 curtime = 4;
+    int32 autoscaler = 5;
+}

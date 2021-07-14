@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serverlessdb-operator
+  namespace: tidb-admin
+  labels:
+    name: serverlessdb-operator
+data:
+  operator-config: |
+    storage:
+      storageClassName: "lvm-hostpath"
+    tidbCluster:
+      version: v4.0.10
+      pd:
+        requests:
+          cpu: "2"
+          memory: 4Gi
+          storage: 10Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+          storage: 10Gi
+        replicas: 3
+      tidb:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+        replicas: 1
+      tikv:
+        requests:
+          cpu: "4"
+          memory: 8Gi
+          storage: 10Gi
+        limits:
+          cpu: "4"
+          memory: 8Gi
+          storage: 10Gi
+        replicas: 3
+    monitor:
+      enable: false
+      requests:
+        cpu: "200m"
+        memory: 1Gi
+        storage: 50Gi
+      limits:
+        cpu: "200m"
+        memory: 1Gi
+        storage: 50Gi
+      prometheusReserveDays: 12
+    proxy:
+      replicas: 1
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      image: "localhost:5000/serverlessdb-for-htap/proxy:v1.0.0"
+
+
+
+

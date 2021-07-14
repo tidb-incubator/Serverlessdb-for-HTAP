@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scale-operator
+  namespace: sldb-admin
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      name: scale-operator
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: scale-operator
+    spec:
+      containers:
+        - command:
+            - /scale-operator
+          env:
+            - name: WATCH_NAMESPACE
+            - name: CPU_AVERAGE_UTILIZATION
+              value: "50"
+            - name: TIKV_AVERAGE_UTILIZATION
+              value: "50"
+            - name: TIKV_MAX_REPLIAS
+              value: "4"
+            - name: secret_dbconnect
+              valueFrom:
+                secretKeyRef:
+                  key: dbinfo
+                  name: scale-passwd
+            - name: MAX_CPU_TYPE
+              value: "3"
+            - name: SPLIT_REPLICAS
+              value: "8"
+            - name: TIKV_CHECK_INTERVAL
+              value: "900"
+            - name: PROMETHEUS_ADRESS
+              value: http://prometheus-server.monitoring-system.svc
+            - name: ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: root
+                  name: scale-passwd
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: scale-operator
+          image: localhost:5000/serverlessdb-for-htap/scale-operator:v1.0.0
+          imagePullPolicy: IfNotPresent
+          name: scale-operator
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: scale-operator
+      serviceAccountName: scale-operator
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Equal

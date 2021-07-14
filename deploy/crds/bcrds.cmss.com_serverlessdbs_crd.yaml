@@ -1,0 +1,242 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: serverlessdbs.bcrds.cmss.com
+spec:
+  additionalPrinterColumns:
+    - JSONPath: .status.phase
+      description: The phase of sldb cluster
+      name: Phase
+      type: string
+    - JSONPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - JSONPath: .status.conditions[0].type
+      name: Condition
+      type: string
+  group: bcrds.cmss.com
+  names:
+    kind: ServerlessDB
+    listKind: ServerlessDBList
+    plural: serverlessdbs
+    singular: serverlessdb
+    shortNames:
+      - sl
+  scope: Namespaced
+  subresources:
+    status: {}
+  validation:
+    openAPIV3Schema:
+      description: ServerlessDB is the Schema for the serverlessdbs API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: ServerlessDBSpec defines the desired state of ServerlessDB
+          properties:
+            freeze:
+              description: Prevent external connections to tidb server
+              type: boolean
+            imagePullPolicy:
+              description: PullPolicy describes a policy for if/when to pull a container
+                image
+              type: string
+            maxValue:
+              properties:
+                component:
+                  properties:
+                    storageClassName:
+                      description: The storageClassName of the persistent volume for
+                        Backup data storage. Defaults to Kubernetes default storage
+                        class.
+                      type: string
+                    storageSize:
+                      description: StorageSize is the request storage size
+                      type: string
+                    type:
+                      description: StorageSize is the request storage size for backup
+                        job
+                      type: string
+                  type: object
+                hashRate:
+                  type: string
+                performance:
+                  properties:
+                    delay:
+                      type: string
+                    maxConnections:
+                      type: string
+                    maxTPMC:
+                      type: string
+                  type: object
+              type: object
+            minResource:
+              description: ResourceRequirements describes the compute resource requirements.
+              properties:
+                limits:
+                  additionalProperties:
+                    type: string
+                  description: 'Limits describes the maximum amount of compute resources
+                    allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
+                  type: object
+                requests:
+                  additionalProperties:
+                    type: string
+                  description: 'Requests describes the minimum amount of compute resources
+                    required. If Requests is omitted for a container, it defaults
+                    to Limits if that is explicitly specified, otherwise to an implementation-defined
+                    value. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
+                  type: object
+              type: object
+            normalResource:
+              description: ResourceRequirements describes the compute resource requirements.
+              properties:
+                limits:
+                  additionalProperties:
+                    type: string
+                  description: 'Limits describes the maximum amount of compute resources
+                    allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
+                  type: object
+                requests:
+                  additionalProperties:
+                    type: string
+                  description: 'Requests describes the minimum amount of compute resources
+                    required. If Requests is omitted for a container, it defaults
+                    to Limits if that is explicitly specified, otherwise to an implementation-defined
+                    value. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
+                  type: object
+              type: object
+            paused:
+              description: Indicates that the severlessdb is paused and will not be
+                processed by the controller.
+              type: boolean
+            proxy:
+              properties:
+                silentPeriod:
+                  description: Defaults to "0".
+                  type: string
+              type: object
+            rateOfScaleDown:
+              type: string
+            rule:
+              additionalProperties:
+                properties:
+                  endTime:
+                    format: date-time
+                    type: string
+                  metric:
+                    properties:
+                      hashRate:
+                        type: string
+                      performance:
+                        properties:
+                          delay:
+                            type: string
+                          maxConnections:
+                            type: string
+                          maxTPMC:
+                            type: string
+                        type: object
+                    type: object
+                  period:
+                    type: string
+                  startTime:
+                    format: date-time
+                    type: string
+                type: object
+              type: object
+            scaleIn:
+              type: string
+            scaleOut:
+              type: string
+            timeToScaleDown:
+              type: string
+            useTiFlash:
+              description: Indicates that the tiflash cluster is used and will not
+                be processed by the controller.
+              type: boolean
+          type: object
+        status:
+          description: ServerlessDBStatus defines the observed state of ServerlessDB
+          properties:
+            conditions:
+              description: Represents the latest available observations of a cluster's
+                state.
+              items:
+                description: ServerlessDBCondition describes the state of a cluster
+                  at a certain point.
+                properties:
+                  lastTransitionTime:
+                    description: Last time the condition transitioned from one status
+                      to another.
+                    format: date-time
+                    type: string
+                  lastUpdateTime:
+                    description: The last time this condition was updated.
+                    format: date-time
+                    type: string
+                  message:
+                    description: A human readable message indicating details about
+                      the transition.
+                    type: string
+                  reason:
+                    description: The reason for the condition's last transition.
+                    type: string
+                  status:
+                    description: Status of the condition, one of True, False, Unknown.
+                    type: string
+                  type:
+                    description: Type of the condition.
+                    type: string
+                required:
+                - status
+                - type
+                type: object
+              type: array
+            lastBackupTime:
+              description: LastBackupTime represents the last time the backup was
+                successfully created.
+              format: date-time
+              type: string
+            nodePort:
+              additionalProperties:
+                format: int32
+                type: integer
+              description: Node port for sldb
+              type: object
+            phase:
+              description: Represents the latest phase
+              type: string
+            rule:
+              description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                of cluster Important: Run "operator-sdk generate k8s" to regenerate
+                code after modifying this file Add custom validation using kubebuilder
+                tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
+                Rule is the Currently triggered rule'
+              items:
+                type: string
+              type: array
+            storageUsage:
+              additionalProperties:
+                type: string
+              description: storage usage
+              type: object
+          type: object
+      required:
+      - spec
+      type: object
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true

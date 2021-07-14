@@ -1,0 +1,29 @@
+bin/
+images/scale-operator/bin/
+images/sldb-operator/bin/
+*.tar
+.idea
+cscope.files
+tags
+filenametags
+
+# ginkgo test coverage
+*.coverprofile
+
+coverage.txt
+coverage.out
+coverage.html
+
+# retool. We could check this in like a vendor
+# But it is just tools that can be installed with make setup
+vendor
+tests/e2e/e2e.test
+.orig
+
+
+# local output directory
+/output/
+# kubetest2 default artifacts directory
+/_artifacts/
+
+.DS_Store
