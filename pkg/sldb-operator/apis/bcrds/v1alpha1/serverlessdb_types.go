@@ -33,7 +33,6 @@ type MaxValue struct {
 type StorageType string
 
 const (
-	S3    StorageType = "S3"
 	CLOUD StorageType = "cloud"
 	LOCAL StorageType = "local"
 )
@@ -66,14 +65,7 @@ type Rule struct {
 }
 
 type Metric struct {
-	Performance Performance `json:"performance,omitempty"`
 	HashRate    string      `json:"hashRate,omitempty"`
-}
-
-type Performance struct {
-	Delay          string `json:"delay,omitempty"`
-	MaxTPMC        string `json:"maxTPMC,omitempty"`
-	MaxConnections string `json:"maxConnections,omitempty"`
 }
 
 type Proxy struct {
@@ -193,10 +185,6 @@ type ServerlessDBStatus struct {
 	// Represents the latest available observations of a cluster's state.
 	// +optional
 	Conditions []ServerlessDBCondition `json:"conditions,omitempty"`
-
-	// LastBackupTime represents the last time the backup was successfully created.
-	// +optional
-	LastBackupTime *metav1.Time `json:"lastBackupTime,omitempty"`
 }
 
 // +genclient

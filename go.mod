@@ -3,22 +3,16 @@ module github.com/tidb-incubator/Serverlessdb-for-HTAP
 go 1.16
 
 require (
-	github.com/agiledragon/gomonkey/v2 v2.1.0
 	github.com/dustin/go-humanize v1.0.0
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/gin-gonic/gin v1.7.2
-	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/golang/protobuf v1.4.3
-	github.com/jinzhu/gorm v1.9.16 // indirect
-	github.com/onsi/gomega v1.5.0 // indirect
 	github.com/pingcap/advanced-statefulset/client v1.16.0
 	github.com/pingcap/errors v0.11.4
 	github.com/pingcap/tidb-operator v1.1.13
 	github.com/prometheus/client_golang v1.0.0
 	github.com/robfig/cron v1.1.0
-	github.com/smartystreets/goconvey v1.6.4
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.5.1 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974 // indirect
 	golang.org/x/sys v0.0.0-20210415045647-66c3f260301c // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
@@ -29,7 +23,6 @@ require (
 	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0
 	k8s.io/client-go v12.0.0+incompatible
-	k8s.io/code-generator v0.0.0 // indirect
 	k8s.io/component-base v0.0.0
 	k8s.io/klog v1.0.0
 	k8s.io/kubernetes v1.16.0

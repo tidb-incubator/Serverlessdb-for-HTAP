@@ -23,7 +23,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	apps "github.com/pingcap/advanced-statefulset/client/apis/apps/v1"
 	"github.com/pingcap/tidb-operator/pkg/label"
 	operatorUtils "github.com/pingcap/tidb-operator/pkg/util"
@@ -57,14 +56,9 @@ import (
 )
 
 const (
-	TpmcPerTidb         = 2000
 	HashratePerTidb     = 1
-	TpmcPerHashrate     = TpmcPerTidb / HashratePerTidb
-	StorageUnit         = 1
-	BackupUnit          = 1
 	ScalerOut           = 1
 	ScalerIn            = 2
-	ZeroHashrate        = 0.0
 	MinHashraterPerTidb = 0.5
 	NormalHashrate1     = 1.0
 	NormalHashrate2     = 2.0
@@ -155,53 +149,6 @@ func GetLastData(name string, namesp string) (ScalerData, error) {
 	}
 }
 
-func CleanScalerMap(name string, namesp string) {
-	key := name + "-" + namesp
-	GMapMutex.Lock()
-	delete(AllScalerOutData, key)
-	GMapMutex.Unlock()
-}
-
-// NewError example
-func NewError(ctx *gin.Context, status int, err error) {
-	response := CommonResponse{
-		Meta:    nil,
-		State:   "ERROR",
-		Code:    status,
-		Message: err.Error(),
-		Body:    "",
-	}
-	ctx.JSON(status, response)
-	ctx.Abort()
-}
-
-// NewOK example
-func NewOK(ctx *gin.Context, status int, meta *Meta, body interface{}) {
-	response := CommonResponse{
-		Meta:    meta,
-		State:   "OK",
-		Code:    status,
-		Message: "",
-		Body:    body,
-	}
-	ctx.JSON(status, response)
-	ctx.Abort()
-}
-
-// HTTPError example
-type HTTPError struct {
-	State   string `json:"state"`
-	Code    int    `json:"code" example:"400"`
-	Message string `json:"message" example:"status bad request"`
-}
-
-type OPResponse struct {
-	State        string                 `json:"state"`
-	ErrorCode    string                 `json:"errorCode,omitempty"`
-	ErrorMessage string                 `json:"errorMessage,omitempty"`
-	Body         map[string]interface{} `json:"body,omitempty"`
-	RequestId    string                 `json:"requestId,omitempty"`
-}
 
 type DBStatus struct {
 	Cluster         string `json:"cluster"`
@@ -217,33 +164,11 @@ type DBStatus struct {
 	UsingConnsCount int64  `json:"using_conn_count"`
 }
 
-type (
-	Meta struct {
-		Total  int `json:"total" binding:"omitempty"`
-		Limit  int `json:"limit" binding:"omitempty"`
-		Offset int `json:"offset" binding:"omitempty"`
-	}
-	CommonResponse struct {
-		Meta    *Meta       `json:"meta" binding:"omitempty"`
-		State   string      `json:"state" binding:"omitempty"`
-		Code    int         `json:"code" binding:"omitempty"`
-		Message string      `json:"message" binding:"omitempty"`
-		Body    interface{} `json:"body" binding:"omitempty"`
-	}
-)
-
 var rtpasswd = os.Getenv("ROOT_PASSWORD")
 var SplitReplicas = os.Getenv("SPLIT_REPLICAS")
 var TwoPattern = "2"
 var MaxHashrate = os.Getenv("MAX_HASHRATE")
 
-// Check if Offset out of range.
-func (m *Meta) CheckOffset() bool {
-	if m.Offset == 0 || (m.Offset <= m.Total/m.Limit && m.Total%m.Limit > 0) {
-		return false
-	}
-	return true
-}
 
 func GetSldb(clus, ns string) (*v1alpha1.ServerlessDB, error) {
 	sldb, err := sldbcluster.SldbClient.Client.BcrdsV1alpha1().ServerlessDBs(ns).Get(clus, metav1.GetOptions{})
@@ -253,30 +178,10 @@ func GetSldb(clus, ns string) (*v1alpha1.ServerlessDB, error) {
 	return sldb, err
 }
 
-//transfer hashrate to tidb replicas
-func TransHashrateToReplica(hashrate int) int {
-	return int(math.Ceil(float64(hashrate) / HashratePerTidb))
-}
-
 //calcute max hashrate based on metric.
 func CalcMaxPerfResource(metrics v1alpha1.Metric) int {
-	if metrics.HashRate != "" {
 		maxHashrate, _ := strconv.Atoi(metrics.HashRate)
 		return maxHashrate
-	}
-
-	perf := metrics.Performance
-	maxTpmc, _ := strconv.ParseFloat(perf.MaxTPMC, 64)
-	delay, _ := strconv.ParseFloat(perf.Delay, 64)
-	connect, _ := strconv.ParseFloat(perf.MaxConnections, 64)
-	var expectTpmc float64
-	if delay > 0 {
-		expectTpmc = connect * 60000 / delay
-	}
-	if expectTpmc > maxTpmc {
-		maxTpmc = expectTpmc
-	}
-	return int(math.Ceil(maxTpmc / TpmcPerHashrate))
 }
 
 //caculated resource cannot exceed cluster limit.
@@ -334,8 +239,7 @@ func UpdateAnno(tc *tcv1.TidbCluster, component string, actualReplica, targetRep
 	}
 
 	if actualReplica > targetReplica {
-		//to do: get tidb pod's sequence of scale in.
-		diff := int(actualReplica - targetReplica)
+		diff := actualReplica - targetReplica
 		deleteslots, err := FilterNeedReduceTidbReplicasIndex(tc, diff, component)
 		if err != nil {
 			return anno, fmt.Errorf("[%s/%s] filter deleted slots %v failed which need reduce: %s", tc.Namespace, tc.Name, deleteslots, err)
@@ -526,17 +430,6 @@ func FilterNeedReduceTidbReplicasIndex(tc *tcv1.TidbCluster, reduceReplica int, 
 	return fArr, err
 }
 
-//func GetAllPodArray(name string, namesp string, sldbType tcv1.MemberType) ([]*corev1.Pod, error) {
-//	selector := labels.NewSelector()
-//	r1, err1 := labels.NewRequirement("app.kubernetes.io/component", selection.Equals, []string{string(sldbType)})
-//	r2, err2 := labels.NewRequirement("bcrds.cmss.com/instance", selection.Equals, []string{name})
-//	r3, err3 := labels.NewRequirement("app.kubernetes.io/managed-by", selection.Equals, []string{"tidb-operator"})
-//	if err1 != nil || err2 != nil || err3 != nil {
-//		return nil, fmt.Errorf("[%s/%s] podStatusCheck err1 %v,err2 %v,err3 %v", namesp, name, err1, err2, err3)
-//	}
-//	selector = selector.Add(*r1, *r2, *r3)
-//	return sldbcluster.SldbClient.KubeInformerFactory.Core().V1().Pods().Lister().Pods(namesp).List(selector)
-//}
 
 func GetK8sAllPodArray(name string, namesp string, sldbType tcv1.MemberType) ([]*corev1.Pod, error) {
 	labelkv := fmt.Sprintf(`%s=%s,%s=%s,%s=%s`, "app.kubernetes.io/component", string(sldbType),
@@ -1010,7 +903,7 @@ func ResourceProblemCheck(sldb *v1alpha1.ServerlessDB, tcArr *TClus, sldbType tc
 	return true, nil
 }
 
-// checkStsAutoScalingInterval would check whether there is enough interval duration between every two auto-scaling
+// CheckStsAutoScalingInterval would check whether there is enough interval duration between every two auto-scaling
 func CheckStsAutoScalingInterval(sldb *v1alpha1.ServerlessDB, intervalSeconds int32, memberType tcv1.MemberType) (bool, error) {
 	var lastAutoScalingTimestamp string
 	var existed bool
@@ -1822,15 +1715,6 @@ func AutoScalerToMidWareScalerOut(tcArr *TClus) error {
 	}
 	return nil
 }
-
-//func AutoScalerToMidWareScalerIn(tc *tcv1.TidbCluster, instances []string, weight string) ([]string, error) {
-//	webclient := webClient.NewAutoScalerClientApi()
-//	name := tc.Name
-//	namePrefix := strings.Split(name, "-new")
-//	namesp := tc.Namespace
-//	url := "http://" + namePrefix[0] + "-" + "he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/sldb/Tidbs"
-//	return webclient.DeleteTidb(url, name, namesp, instances, weight)
-//}
 
 func FGreater(a, b float64) bool {
 	return math.Max(a, b) == a && math.Abs(a-b) > 0.001

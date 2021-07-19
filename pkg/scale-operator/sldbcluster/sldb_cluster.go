@@ -56,33 +56,3 @@ func Sldb_Cluster_Init(cfg *rest.Config) {
 	SldbClient.KubeCli = kubecli
 	SldbClient.AsCli = ascli
 }
-
-//func UpdateSldbSpec(sldb *v1alpha1.ServerlessDB) error {
-//	ns := sldb.Namespace
-//	sldbName := sldb.Name
-//	oldSldb := sldb.DeepCopy()
-//
-//	// don't wait due to limited number of clients, but backoff after the default number of steps
-//	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-//		var updateErr error
-//		_, updateErr = SldbClient.Client.BcrdsV1alpha1().ServerlessDBs(ns).Update(sldb)
-//		if updateErr == nil {
-//			klog.Infof("sldb update: [%s/%s] updated successfully", ns, sldbName)
-//			return nil
-//		}
-//		klog.V(4).Infof("failed to update sldb cluster: [%s/%s], error: %v", ns, sldbName, updateErr)
-//		if updated, err := SldbClient.Lister.ServerlessDBs(ns).Get(sldbName); err == nil {
-//			// make a copy so we don't mutate the shared cache
-//			sldb = updated.DeepCopy()
-//			//
-//			sldb.Spec = *oldSldb.Spec.DeepCopy()
-//		} else {
-//			utilruntime.HandleError(fmt.Errorf("error getting updated cluster %s/%s from lister: %v", ns, sldbName, err))
-//		}
-//		return updateErr
-//	})
-//	if err != nil {
-//		klog.Errorf("failed to update TidbClusterAutoScaler: [%s/%s], error: %v", ns, sldbName, err)
-//	}
-//	return err
-//}
