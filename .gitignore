@@ -1,6 +1,8 @@
 bin/
 images/scale-operator/bin/
 images/sldb-operator/bin/
+images/he3local/lvmplugin/bin/
+images/he3local/scheduler/bin/
 *.tar
 .idea
 cscope.files

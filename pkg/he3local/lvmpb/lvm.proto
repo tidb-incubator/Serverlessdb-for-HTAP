@@ -1,0 +1,53 @@
+syntax = "proto3";
+option objc_class_prefix = "CDB";
+package lvmpb;
+
+
+// The snap service definition.
+service Snapshot {
+  rpc SnapshotForVolume (SnapshotForVolumeRequest) returns (SnapshotForVolumeReply) {}
+}
+
+
+message SnapshotForVolumeRequest {
+    string vgName = 1;
+    string snapshotID=2;
+    string s3env=3;
+    string size=4;
+    string volumeID=5;  
+    string fstype=6; 
+}
+
+
+message Result {
+    int32 size  = 1;  
+}
+
+message ErrorReason{
+  string reason = 1;
+}
+
+
+message SnapshotForVolumeReply {
+    bool success = 1;
+    Result result = 2;
+    ErrorReason error =3;
+}
+
+
+
+
+// The lvm service definition.
+service LVMVolume {
+  rpc DeleteVolume (DeleteVolumeRequest) returns (DeleteVolumeVolumeReply) {}
+}
+
+message DeleteVolumeRequest {
+    string volumeID=1;  
+}
+
+message DeleteVolumeVolumeReply{
+    bool success = 1;
+    Result result = 2;
+    ErrorReason error =3;
+}
