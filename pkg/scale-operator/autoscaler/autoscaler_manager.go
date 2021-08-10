@@ -16,7 +16,6 @@ package autoscaler
 import (
 	"fmt"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
-	"github.com/pingcap/tidb-operator/pkg/label"
 	slcluster "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/sldbcluster"
 	"github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/utils"
 	sldbv1 "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/sldb-operator/apis/bcrds/v1alpha1"
@@ -318,7 +317,7 @@ func (am *AutoScalerManager) updateAutoScaling(sldb *sldbv1.ServerlessDB) error 
 		sldb.Annotations = map[string]string{}
 	}
 	now := time.Now()
-	sldb.Annotations[label.AnnLastSyncingTimestamp] = fmt.Sprintf("%d", now.Unix())
+	sldb.Annotations[utils.AnnLastSyncingTimestamp] = fmt.Sprintf("%d", now.Unix())
 	return am.UpdateSldbClusterAutoScaler(sldb)
 }
 
@@ -335,9 +334,9 @@ func (am *AutoScalerManager) UpdateSldbClusterAutoScaler(sldb *sldbv1.Serverless
 	tacName := sldb.Name
 	oldTac := sldb.DeepCopy()
 	var oldV, oldV1, oldV2 string
-	oldV, _ = sldb.Annotations[label.AnnLastSyncingTimestamp]
-	oldV1, _ = sldb.Annotations[label.AnnTiDBLastAutoScalingTimestamp]
-	oldV2, _ = sldb.Annotations[label.AnnTiKVLastAutoScalingTimestamp]
+	oldV, _ = sldb.Annotations[utils.AnnLastSyncingTimestamp]
+	oldV1, _ = sldb.Annotations[utils.AnnTiDBLastAutoScalingTimestamp]
+	oldV2, _ = sldb.Annotations[utils.AnnTiKVLastAutoScalingTimestamp]
 	// don't wait due to limited number of clients, but backoff after the default number of steps
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var updateErr error
@@ -354,13 +353,13 @@ func (am *AutoScalerManager) UpdateSldbClusterAutoScaler(sldb *sldbv1.Serverless
 				sldb.Annotations = map[string]string{}
 			}
 			if oldV != "" {
-				sldb.Annotations[label.AnnLastSyncingTimestamp] = oldV
+				sldb.Annotations[utils.AnnLastSyncingTimestamp] = oldV
 			}
 			if oldV1 != "" {
-				sldb.Annotations[label.AnnTiDBLastAutoScalingTimestamp] = oldV1
+				sldb.Annotations[utils.AnnTiDBLastAutoScalingTimestamp] = oldV1
 			}
 			if oldV2 != "" {
-				sldb.Annotations[label.AnnTiKVLastAutoScalingTimestamp] = oldV2
+				sldb.Annotations[utils.AnnTiKVLastAutoScalingTimestamp] = oldV2
 			}
 			sldb.Status = oldTac.Status
 		} else {

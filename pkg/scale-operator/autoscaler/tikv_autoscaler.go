@@ -4,7 +4,6 @@ import (
 	"fmt"
 	appsv1 "github.com/pingcap/advanced-statefulset/client/apis/apps/v1"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
-	"github.com/pingcap/tidb-operator/pkg/label"
 	operatorUtils "github.com/pingcap/tidb-operator/pkg/util"
 	promClient "github.com/prometheus/client_golang/api"
 	"github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/autoscaler/calculate"
@@ -148,7 +147,7 @@ func (am *AutoScalerManager) calculateTiKVStorageMetrics(sldb *sldbv1.Serverless
 
 // updateTacIfTiKVScale update the tac status and syncing annotations if tikv scale-in/out
 func updateTacIfTiKVScale(tc *v1alpha1.TidbCluster, sldb *sldbv1.ServerlessDB, recommendedReplicas int32) error {
-	sldb.Annotations[label.AnnTiKVLastAutoScalingTimestamp] = fmt.Sprintf("%d", time.Now().Unix())
+	sldb.Annotations[utils.AnnTiKVLastAutoScalingTimestamp] = fmt.Sprintf("%d", time.Now().Unix())
 	tc.Spec.TiKV.Replicas = recommendedReplicas
 	return nil
 }

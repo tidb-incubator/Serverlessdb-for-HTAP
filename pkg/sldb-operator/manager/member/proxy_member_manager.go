@@ -373,10 +373,10 @@ func (m *proxyMemberManager) getNewProxyDeployment(db *v1alpha1.ServerlessDB) (*
 					},
 				},
 				Spec: v1.PodSpec{
-					NodeSelector: map[string]string{
-						nodeSelectorKeyDiskType:     nodeSelectorValueLSSSD,
-						nodeSelectorKeyServerlessDB: nodeSelectorValueTrue,
-					},
+					//NodeSelector: map[string]string{
+					//	nodeSelectorKeyDiskType:     nodeSelectorValueLSSSD,
+					//	nodeSelectorKeyServerlessDB: nodeSelectorValueTrue,
+					//},
 					Containers: []v1.Container{
 						{
 							Name:            ComponentProxy,

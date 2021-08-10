@@ -15,14 +15,12 @@ package calculate
 
 import (
 	"fmt"
-	"github.com/dustin/go-humanize"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	promClient "github.com/prometheus/client_golang/api"
 	sldbv1 "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/sldb-operator/apis/bcrds/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog"
-	"k8s.io/utils/pointer"
 	"os"
 	"strconv"
 	"strings"
@@ -144,31 +142,31 @@ func CalculateWhetherStoragePressure(sldb *sldbv1.ServerlessDB, capacitySq, avai
 	if availableSize < baselineAvailableSize {
 		storagePressure = true
 	}
-	storageMetrics := v1alpha1.StorageMetricsStatus{
-		StoragePressure:          pointer.BoolPtr(storagePressure),
-		AvailableStorage:         pointer.StringPtr(humanize.Bytes(availableSize)),
-		CapacityStorage:          pointer.StringPtr(humanize.Bytes(capacitySize)),
-		BaselineAvailableStorage: pointer.StringPtr(humanize.Bytes(baselineAvailableSize)),
-	}
-	klog.Infof("[%s/%s] CalculateWhetherStoragePressure StoragePressure %v,AvailableStorage %v,CapacityStorage %v,BaselineAvailableStorage %v",
-		sldb.Namespace, sldb.Name, *storageMetrics.StoragePressure, *storageMetrics.AvailableStorage, *storageMetrics.CapacityStorage, *storageMetrics.BaselineAvailableStorage)
+	//storageMetrics := v1alpha1.StorageMetricsStatus{
+	//	StoragePressure:          pointer.BoolPtr(storagePressure),
+	//	AvailableStorage:         pointer.StringPtr(humanize.Bytes(availableSize)),
+	//	CapacityStorage:          pointer.StringPtr(humanize.Bytes(capacitySize)),
+	//	BaselineAvailableStorage: pointer.StringPtr(humanize.Bytes(baselineAvailableSize)),
+	//}
+	//klog.Infof("[%s/%s] CalculateWhetherStoragePressure StoragePressure %v,AvailableStorage %v,CapacityStorage %v,BaselineAvailableStorage %v",
+	//	sldb.Namespace, sldb.Name, *storageMetrics.StoragePressure, *storageMetrics.AvailableStorage, *storageMetrics.CapacityStorage, *storageMetrics.BaselineAvailableStorage)
 	return storagePressure, nil
 }
 
 // TODO: add unit test
-func isStoragePressureStartTimeRecordAlready(tacStatus v1alpha1.TidbClusterAutoSclaerStatus) bool {
-	if tacStatus.TiKV == nil {
-		return false
-	}
-	if len(tacStatus.TiKV.MetricsStatusList) < 1 {
-		return false
-	}
-	for _, metricsStatus := range tacStatus.TiKV.MetricsStatusList {
-		if metricsStatus.Name == "storage" {
-			if metricsStatus.StoragePressureStartTime != nil {
-				return true
-			}
-		}
-	}
-	return false
-}
+//func isStoragePressureStartTimeRecordAlready(tacStatus v1alpha1.TidbClusterAutoSclaerStatus) bool {
+//	if tacStatus.TiKV == nil {
+//		return false
+//	}
+//	if len(tacStatus.TiKV.MetricsStatusList) < 1 {
+//		return false
+//	}
+//	for _, metricsStatus := range tacStatus.TiKV.MetricsStatusList {
+//		if metricsStatus.Name == "storage" {
+//			if metricsStatus.StoragePressureStartTime != nil {
+//				return true
+//			}
+//		}
+//	}
+//	return false
+//}

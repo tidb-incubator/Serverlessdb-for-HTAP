@@ -24,8 +24,6 @@ import (
 	"github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/utils"
 	sldbv1 "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/sldb-operator/apis/bcrds/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/klog"
-	"k8s.io/utils/pointer"
 	"os"
 )
 
@@ -80,14 +78,14 @@ func CalculateRecomendedReplicasByCpuCosts(sldb *sldbv1.ServerlessDB, sq *Single
 	if err != nil {
 		return -1, err
 	}
-	metrics := v1alpha1.MetricsStatus{
-		Name:           string(corev1.ResourceCPU),
-		CurrentValue:   pointer.StringPtr(fmt.Sprintf("%v", cpuSecsTotal)),
-		ThresholdValue: pointer.StringPtr(fmt.Sprintf("%v", expectedCpuSecsTotal)),
-	}
+	//metrics := v1alpha1.MetricsStatus{
+	//	Name:           string(corev1.ResourceCPU),
+	//	CurrentValue:   pointer.StringPtr(fmt.Sprintf("%v", cpuSecsTotal)),
+	//	ThresholdValue: pointer.StringPtr(fmt.Sprintf("%v", expectedCpuSecsTotal)),
+	//}
 	hrate = rc * float64(utils.HashratePerTidb)
-	klog.Infof("[%s/%s]  type %d,metrics CurrentValue %v ThresholdValue %v,expectHashrate %v",
-		sldb.Namespace, sldb.Name, isCpuOrTpmc, *metrics.CurrentValue, *metrics.ThresholdValue, hrate)
+	//klog.Infof("[%s/%s]  type %d,metrics CurrentValue %v ThresholdValue %v,expectHashrate %v",
+	//	sldb.Namespace, sldb.Name, isCpuOrTpmc, *metrics.CurrentValue, *metrics.ThresholdValue, hrate)
 
 	return hrate, nil
 }
