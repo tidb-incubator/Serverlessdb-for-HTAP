@@ -5,16 +5,15 @@ go 1.16
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/container-storage-interface/spec v1.3.0
-	github.com/dustin/go-humanize v1.0.0
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/golang/protobuf v1.4.3
+	github.com/golang/protobuf v1.4.1
 	github.com/kirinlabs/HttpRequest v1.1.1
 	github.com/kubernetes-csi/csi-lib-utils v0.7.0
 	github.com/kubernetes-csi/external-snapshotter/v2 v2.1.1
 	github.com/onsi/gomega v1.7.0
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/openshift/generic-admission-server v1.14.0 // indirect
+	github.com/openshift/generic-admission-server v1.14.0
 	github.com/pborman/uuid v1.2.0
 	github.com/pingcap/advanced-statefulset/client v1.16.0
 	github.com/pingcap/errors v0.11.4
