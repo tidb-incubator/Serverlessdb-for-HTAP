@@ -67,6 +67,15 @@ const (
 	NormalHashrate5     = 16.0
 )
 
+const (
+	// AnnTiDBLastAutoScalingTimestamp is annotation key of tidbcluster to indicate the last timestamp for tidb auto-scaling
+	AnnTiDBLastAutoScalingTimestamp = "tidb.tidb.pingcap.com/last-autoscaling-timestamp"
+	// AnnTiKVLastAutoScalingTimestamp is annotation key of tidbclusterto which ordinal is created by tikv auto-scaling
+	AnnTiKVLastAutoScalingTimestamp = "tikv.tidb.pingcap.com/last-autoscaling-timestamp"
+	// AnnLastSyncingTimestamp records last sync timestamp
+	AnnLastSyncingTimestamp = "tidb.pingcap.com/last-syncing-timestamp"
+)
+
 type ScalerData struct {
 	ScalerNeedCore float64
 	ScalerCurtime  int64
@@ -908,9 +917,9 @@ func CheckStsAutoScalingInterval(sldb *v1alpha1.ServerlessDB, intervalSeconds in
 	var lastAutoScalingTimestamp string
 	var existed bool
 	if memberType == tcv1.TiDBMemberType {
-		lastAutoScalingTimestamp, existed = sldb.Annotations[label.AnnTiDBLastAutoScalingTimestamp]
+		lastAutoScalingTimestamp, existed = sldb.Annotations[AnnTiDBLastAutoScalingTimestamp]
 	} else if memberType == tcv1.TiKVMemberType {
-		lastAutoScalingTimestamp, existed = sldb.Annotations[label.AnnTiKVLastAutoScalingTimestamp]
+		lastAutoScalingTimestamp, existed = sldb.Annotations[AnnTiKVLastAutoScalingTimestamp]
 	}
 	if !existed {
 		return true, nil

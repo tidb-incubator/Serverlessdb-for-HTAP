@@ -3,18 +3,23 @@ module github.com/tidb-incubator/Serverlessdb-for-HTAP
 go 1.16
 
 require (
+	github.com/BurntSushi/toml v0.3.1
 	github.com/container-storage-interface/spec v1.3.0
 	github.com/dustin/go-humanize v1.0.0
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.4.3
+	github.com/kirinlabs/HttpRequest v1.1.1
 	github.com/kubernetes-csi/csi-lib-utils v0.7.0
 	github.com/kubernetes-csi/external-snapshotter/v2 v2.1.1
+	github.com/onsi/gomega v1.7.0
 	github.com/opencontainers/go-digest v1.0.0 // indirect
+	github.com/openshift/generic-admission-server v1.14.0 // indirect
 	github.com/pborman/uuid v1.2.0
 	github.com/pingcap/advanced-statefulset/client v1.16.0
 	github.com/pingcap/errors v0.11.4
-	github.com/pingcap/tidb-operator v1.1.13
+	github.com/pingcap/kvproto v0.0.0-20200927054727-1290113160f0
+	github.com/pingcap/tidb-operator v1.2.0
 	github.com/prometheus/client_golang v1.0.0
 	github.com/robfig/cron v1.1.0
 	github.com/sirupsen/logrus v1.6.0
@@ -22,6 +27,7 @@ require (
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 	golang.org/x/sys v0.0.0-20210415045647-66c3f260301c // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	gomodules.xyz/jsonpatch/v2 v2.0.1
 	google.golang.org/grpc v1.27.0
 	google.golang.org/protobuf v1.25.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect

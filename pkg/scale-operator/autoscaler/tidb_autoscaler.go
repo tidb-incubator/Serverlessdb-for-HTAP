@@ -23,7 +23,6 @@ import (
 	"github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/autoscaler/calculate"
 
 	appsv1 "github.com/pingcap/advanced-statefulset/client/apis/apps/v1"
-	"github.com/pingcap/tidb-operator/pkg/label"
 	operatorUtils "github.com/pingcap/tidb-operator/pkg/util"
 	promClient "github.com/prometheus/client_golang/api"
 	sldbv1 "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/sldb-operator/apis/bcrds/v1alpha1"
@@ -122,7 +121,7 @@ func syncTiDBAfterCalculated(tcArr *utils.TClus, sldb *sldbv1.ServerlessDB, tota
 
 // Currently we didnt' record the auto-scaling out slot for tidb, because it is pointless for now.
 func updateTcTiDBIfScale(sldb *sldbv1.ServerlessDB) error {
-	sldb.Annotations[label.AnnTiDBLastAutoScalingTimestamp] = fmt.Sprintf("%d", time.Now().Unix())
+	sldb.Annotations[utils.AnnTiDBLastAutoScalingTimestamp] = fmt.Sprintf("%d", time.Now().Unix())
 	return nil
 }
 

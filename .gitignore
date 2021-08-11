@@ -3,6 +3,7 @@ images/scale-operator/bin/
 images/sldb-operator/bin/
 images/he3local/lvmplugin/bin/
 images/he3local/scheduler/bin/
+images/admission-webhook/bin/
 *.tar
 .idea
 cscope.files

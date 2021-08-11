@@ -155,10 +155,10 @@ func (m *tcMemberManager) getNewTidbClusterForServerlessDB(db *v1alpha1.Serverle
 			Version:         defaultTiDBVersion,
 			PVReclaimPolicy: &pvReclaimPolicy,
 			SchedulerName:   defaultSchedulerName,
-			NodeSelector: map[string]string{
-				nodeSelectorKeyDiskType:     nodeSelectorValueLSSSD,
-				nodeSelectorKeyServerlessDB: nodeSelectorValueTrue,
-			},
+			//NodeSelector: map[string]string{
+			//	nodeSelectorKeyDiskType:     nodeSelectorValueLSSSD,
+			//	nodeSelectorKeyServerlessDB: nodeSelectorValueTrue,
+			//},
 			Annotations: map[string]string{
 				util.InstanceAnnotationKey: db.Name,
 			},
@@ -167,9 +167,9 @@ func (m *tcMemberManager) getNewTidbClusterForServerlessDB(db *v1alpha1.Serverle
 				return &pcv1alpha1.PDSpec{
 					ComponentSpec: pcv1alpha1.ComponentSpec{
 						Annotations: annotations,
-						NodeSelector: map[string]string{
-							nodeSelectorKeyComponentPD: nodeSelectorValueTrue,
-						},
+						//NodeSelector: map[string]string{
+						//	nodeSelectorKeyComponentPD: nodeSelectorValueTrue,
+						//},
 					},
 					ResourceRequirements:         m.deps.CLIConfig.Config.TiDBCluster.PD.ResourceRequirements.ParseResource(),
 					ServiceAccount:               "",
@@ -190,8 +190,11 @@ func (m *tcMemberManager) getNewTidbClusterForServerlessDB(db *v1alpha1.Serverle
 				return &pcv1alpha1.TiDBSpec{
 					ComponentSpec: pcv1alpha1.ComponentSpec{
 						Annotations: annotations,
-						NodeSelector: map[string]string{
-							nodeSelectorKeyComponentTiDB: nodeSelectorValueTrue,
+						//NodeSelector: map[string]string{
+						//	nodeSelectorKeyComponentTiDB: nodeSelectorValueTrue,
+						//},
+						Labels: map[string]string{
+							util.InstanceAnnotationKey: db.Name,
 						},
 					},
 					ResourceRequirements: m.deps.CLIConfig.Config.TiDBCluster.TiDB.ResourceRequirements.ParseResource(),
@@ -222,9 +225,9 @@ func (m *tcMemberManager) getNewTidbClusterForServerlessDB(db *v1alpha1.Serverle
 			TiKV: &pcv1alpha1.TiKVSpec{
 				ComponentSpec: pcv1alpha1.ComponentSpec{
 					Annotations: annotations,
-					NodeSelector: map[string]string{
-						nodeSelectorKeyComponentTiKV: nodeSelectorValueTrue,
-					},
+					//NodeSelector: map[string]string{
+					//	nodeSelectorKeyComponentTiKV: nodeSelectorValueTrue,
+					//},
 				},
 				ResourceRequirements:     tiKVResource,
 				ServiceAccount:           "",
