@@ -20,6 +20,7 @@ message ScaleRequest {
   string clustername = 1;
   string namespace = 2;
   float hashrate = 3;
+  string scaletype = 4;
 }
 
 message AutoScaleRequest {
