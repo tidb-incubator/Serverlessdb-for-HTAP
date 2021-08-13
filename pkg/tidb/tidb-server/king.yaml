@@ -1,0 +1,35 @@
+#he3proxy的web API 端口
+web_addr : 0.0.0.0:9797
+#调用API的用户名和密码
+web_user : admin
+web_password : admin
+
+#如果设置了该项，则只输出SQL执行时间超过slow_log_time(ms)的SQL日志，不设置则输出全部SQL日志
+slow_log_time : 100
+#日志文件路径，如果不配置则会输出到终端。
+
+# sql黑名单文件路径
+# 所有在该文件中的sql都会被he3proxy拒绝转发
+#blacklist_sql_file: /Users/he3db/blacklist
+# 只允许下面的IP列表连接he3proxy，如果不配置则对连接he3proxy的IP不做限制。
+allow_ips: 192.168.117.220
+# he3proxy使用的字符集，如果不设置该选项，则he3proxy使用utf8作为默认字符集
+#proxy_charset: utf8mb4
+
+
+clusters :
+    # 连接池中最大的空闲连接数，也就是he3proxy最多与后端DB建立max_conns_limit个连接
+    #max_conns_limit : 100
+    serverless_addr : 192.168.117.220
+    resend_for_scale_out : 10
+    scale_in_interval : 5
+    silent_period : 100
+
+    # he3proxy连接该node中mysql的用户名和密码，master和Tidb的用户名和密码必须一致
+    user :  root
+    #password : Nz_2@sMw6R
+    # Tidb的地址和端口，可不配置
+    tidbs : 100.71.36.50:5000@2
+    #he3proxy在300秒内都连接不上mysql，he3proxy则会下线该mysql
+    down_after_noalive : 300
+

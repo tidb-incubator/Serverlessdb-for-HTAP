@@ -1,0 +1,8 @@
+./main -store=mocktikv -P 4000
+./main -configproxy=./king.yaml    -store=mocktikv -P 4000
+
+
+tiup playground
+./main -configproxy=./kinglocal.yaml   --path=127.0.0.1:2379  -store=tikv --status=10081 -P 4002
+./main -configproxy=./king.yaml   --path=100.71.36.81:4379,100.71.36.116:4379   -store=tikv -P 4000
+mysql -u root  -P 4000 -h 192.168.117.220
