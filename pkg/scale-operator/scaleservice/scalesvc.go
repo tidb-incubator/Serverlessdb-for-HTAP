@@ -27,6 +27,10 @@ const AllInstanceLabelKey string = "bcrds.cmss.com/instance"
 
 type Service struct{}
 
+func (s *Service) ScaleTempCluster(ctx context.Context, request *scalepb.TempClusterRequest) (*scalepb.TempClusterReply, error) {
+	return nil, nil
+}
+
 //UpdateRule immediately updates instance's hashrates, only deal with active rules which need increase.
 func (*Service) UpdateRule(ctx context.Context, req *scalepb.UpdateRequest) (*scalepb.UpdateReply, error) {
 	klog.Infoln("updateRule method is called")
