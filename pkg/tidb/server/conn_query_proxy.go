@@ -1,12 +1,12 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/mysql"
-
-	"context"
+	"sync/atomic"
 )
 
 /*处理query语句*/
@@ -43,7 +43,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 	sessionVars := c.ctx.GetSessionVars()
 	if !sessionVars.InTxn() {
 		//fmt.Println("no tran")
-		co, err = cluster.GetTidbConn()
+		co, err = cluster.GetTidbConn(int64(sessionVars.Cost))
 		if err != nil {
 			return
 		}
@@ -51,7 +51,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 		co = c.txConn
 
 		if co == nil {
-			if co, err = cluster.GetTidbConn(); err != nil {
+			if co, err = cluster.GetTidbConn(int64(sessionVars.Cost)); err != nil {
 				return
 			}
 			if !sessionVars.IsAutocommit() {
@@ -97,6 +97,15 @@ func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 		return
 	}
 	defer conn.Close()
+	dbtype := conn.GetDbType()
+	cost := int64(sessionVars.Cost)
+	if !conn.IsProxySelf() && (dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP) {
+		atomic.AddInt64(&c.server.cluster.BackendPools[dbtype].Costs, -cost)
+	}
+	if conn.IsProxySelf() {
+		atomic.AddInt64(&c.server.cluster.ProxyNode.ProxyCost, -cost)
+	}
+
 	if rollback {
 		conn.Rollback()
 	}

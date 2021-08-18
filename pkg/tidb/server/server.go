@@ -292,6 +292,9 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 	var err error
 	cluster := new(backend.Cluster)
 	cluster.Cfg = cfg
+	//for test
+	cluster.BackendPools = make(map[string]*backend.Pool)
+	cluster.BackendPools[backend.TiDBForTP] = &backend.Pool{}
 
 	cluster.DownAfterNoAlive = time.Duration(cfg.DownAfterNoAlive) * time.Second
 	//fmt.Printf("tidb is %s \n",cfg.Tidbs)
@@ -342,6 +345,10 @@ func (s *Server) Run() error {
 	if s.cfg.Status.ReportStatus {
 		s.startStatusHTTP()
 	}
+
+	//check proxy node's role.
+	go s.CheckProxyRole()
+
 	// If error should be reported and exit the server it can be sent on this
 	// channel. Otherwise end with sending a nil error to signal "done"
 	errChan := make(chan error)
@@ -352,6 +359,44 @@ func (s *Server) Run() error {
 		return err
 	}
 	return <-errChan
+}
+
+func (s *Server) CheckProxyRole() {
+	for {
+		tppool := s.cluster.BackendPools[backend.TiDBForTP]
+		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs
+		switch {
+		case costs < 10000:
+			//proxy service as a pure tp type compute node, and no need other tp type tidb.
+			if !s.cluster.ProxyNode.ProxyAsCompute {
+				if err := s.cluster.AddTidb("self", backend.TiDBForTP); err != nil {
+					fmt.Errorf("add proxy into tp pools failed: %s", err)
+				} else {
+					fmt.Println("add proxy into tp pools success when proxy as a pure compute node.")
+				}
+			}
+		case costs > 100000:
+			//proxy service as a pure proxy node, and remove from tp type backend pools.
+			if s.cluster.ProxyNode.ProxyAsCompute {
+				//remove proxy node from tp type backend pools.
+				//Invoke DeleteOneTidb api.
+				//todo: get address from config.
+				tppool.InitBalancerAfterDeleteTidb("self")
+				//s.Resetserverless()
+				s.cluster.ProxyNode.ProxyAsCompute = false
+			}
+		default:
+			//proxy service as a complex node which can compute as a tp type tidb and proxy request to others tidbs.
+			if !s.cluster.ProxyNode.ProxyAsCompute {
+				if err := s.cluster.AddTidb("self", backend.TiDBForTP); err != nil {
+					fmt.Errorf("add proxy into tp pools failed: %s", err)
+				} else {
+					fmt.Println("add proxy into tp pools success when proxy as a complex compute node.")
+				}
+			}
+		}
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func (s *Server) startNetworkListener(listener net.Listener, isUnixSocket bool, errChan chan error) {
