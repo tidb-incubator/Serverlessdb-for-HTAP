@@ -15,10 +15,15 @@
 package backend
 
 import (
+	"context"
 	"fmt"
 	"github.com/pingcap/tidb/proxy/core/errors"
+	"github.com/pingcap/tidb/proxy/scalepb"
+	"google.golang.org/grpc"
 	"sync/atomic"
 )
+
+const DefaultBigSize = 16.0
 
 func Gcd(ary []int) int {
 	var i int
@@ -53,13 +58,11 @@ func (cluster *Pool) InitBalancer() {
 	var sum int
 	cluster.LastTidbIndex = 0
 
-
 	sws := make([]int, 0, len(cluster.TidbsWeights))
 
 	for i := 0; i < len(cluster.TidbsWeights); i++ {
 		sws = append(sws, int(cluster.TidbsWeights[i]*10))
 	}
-
 
 	gcd := Gcd(sws)
 
@@ -90,19 +93,18 @@ func (cluster *Pool) InitBalancer() {
 }
 
 type peer struct {
-	index int
+	index   int
 	current int
-	execpt int
-	weight int
+	execpt  int
+	weight  int
 }
-
 
 func order(tidbsWeights []int) []int {
 	var total int
 	var peers = make(map[int]*peer)
 	for key, value := range tidbsWeights {
 		peers[key] = &peer{
-			index: key,
+			index:  key,
 			weight: value,
 			execpt: value,
 		}
@@ -126,11 +128,10 @@ func order(tidbsWeights []int) []int {
 	return result
 }
 
-
 func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error) {
 	//Distinguish SQL types based on costs
 	switch {
-	case cost <= 100 :
+	case cost <= 100:
 		//Predicate SQL is belong to TP type
 		pool := cluster.BackendPools[TiDBForTP]
 
@@ -148,11 +149,11 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 	case cost > 10000:
 		//Predicate SQL is belong to Big AP type
 		//invoke grpc api of starting a new pod to handle this request.
-		//resp, err := server.ScaleSldb(cluster.Cfg.Namespace, cluster.Cfg.Name, DefaultBigSize, false, "bigcost")
-		//if err != nil {
-		//	return nil, errors.ErrGetConnTimeout
-		//}
-		//return GetBigCostDB(resp.GetAddress(), cluster.Cfg.User, cluster.Cfg.Password, "")
+		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, DefaultBigSize, false, "bigcost")
+		if err != nil {
+			return nil, err
+		}
+		return GetBigCostDB(resp.GetStartAddr(), cluster.Cfg.User, cluster.Cfg.Password, "")
 
 	default:
 		//choose AP tidb pools
@@ -212,7 +213,6 @@ func (cluster *Pool) GetNextDB(indicator string) (*DB, error) {
 	return nil, errors.ErrInternalServer
 }
 
-
 func GetBigCostDB(addr string, user string, password string, dbName string) (*DB, error) {
 	db := new(DB)
 	db.addr = addr
@@ -221,4 +221,29 @@ func GetBigCostDB(addr string, user string, password string, dbName string) (*DB
 	db.db = dbName
 
 	return db, nil
+}
+
+func ScaleTempTidb(ns, clus string, hashrate float32, needStart bool, needStopAddr string) (*scalepb.TempClusterReply, error) {
+	serviceName := "he3db-scaler-operator.he3db-admin.svc:8028"
+
+	conn, err := grpc.Dial(serviceName, grpc.WithInsecure())
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	t := scalepb.NewScaleClient(conn)
+
+	// 调用gRPC接口
+	tr, err := t.ScaleTempCluster(context.Background(), &scalepb.TempClusterRequest{
+		Clustername: clus,
+		Namespace:   ns,
+		Start:       needStart,
+		Hashrate:    hashrate,
+		StopAddr:    needStopAddr,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tr, nil
 }

@@ -1,0 +1,46 @@
+syntax = "proto3";
+package scalepb;
+
+service Scale {
+  rpc UpdateRule (UpdateRequest) returns (UpdateReply) {}
+  rpc ScaleCluster (ScaleRequest) returns (UpdateReply) {}
+  rpc AutoScalerCluster (AutoScaleRequest) returns (UpdateReply) {}
+  rpc ScaleTempCluster (TempClusterRequest) returns (TempClusterReply) {}
+}
+
+message UpdateRequest {
+  string clustername = 1;
+  string namespace = 2;
+}
+
+message UpdateReply {
+  bool success = 1;
+}
+
+message ScaleRequest {
+  string clustername = 1;
+  string namespace = 2;
+  float hashrate = 3;
+  string scaletype = 4;
+}
+
+message AutoScaleRequest {
+    string clustername = 1;
+    string namespace = 2;
+    float hashrate = 3;
+    int64 curtime = 4;
+    int32 autoscaler = 5;
+    string scaletype = 6;
+}
+message TempClusterRequest {
+  string clustername = 1;
+  string namespace = 2;
+  bool start = 3;
+  float hashrate = 4;
+  string stopAddr = 5;
+}
+
+message TempClusterReply {
+  bool success = 1;
+  string startAddr = 2;
+}

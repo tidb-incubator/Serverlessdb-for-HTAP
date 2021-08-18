@@ -109,4 +109,12 @@ func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	if rollback {
 		conn.Rollback()
 	}
+
+	//stop the big size tidb when the big sql is finished.
+	if dbtype == backend.BigCost {
+		_, err := backend.ScaleTempTidb(c.server.cluster.Cfg.NameSpace, c.server.cluster.Cfg.ClusterName, 0, false, conn.GetAddr())
+		if err != nil {
+			fmt.Errorf("delete big size tidb %s faield: %s.", conn.GetAddr(), err)
+		}
+	}
 }
