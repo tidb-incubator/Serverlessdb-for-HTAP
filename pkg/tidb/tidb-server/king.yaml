@@ -18,6 +18,8 @@ allow_ips: 192.168.117.220
 
 
 clusters :
+    clustername: default
+    namespace: default
     # 连接池中最大的空闲连接数，也就是he3proxy最多与后端DB建立max_conns_limit个连接
     #max_conns_limit : 100
     serverless_addr : 192.168.117.220

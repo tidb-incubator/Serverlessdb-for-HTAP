@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/config"
 	"github.com/pingcap/tidb/proxy/core/golog"
+	"github.com/pingcap/tidb/proxy/scalepb"
+	"google.golang.org/grpc"
 	"math"
 	"time"
 )
@@ -41,6 +44,20 @@ func (sl *Serverless) RestServerless(tidbType string) {
 }
 
 var CostOneCore float64 = 1000
+var ScalerClient scalepb.ScaleClient
+var ClusterName string
+var NameSpace string
+
+func GprcClientToCluster() error {
+	serviceName := "he3db-scaler-operator.he3db-admin.svc:8028"
+	conn, err := grpc.Dial(serviceName, grpc.WithInsecure())
+	if err != nil {
+		golog.Fatal("serverless","GprcClientToCluster","gprc to he3db-scaler failed",0,"address",serviceName)
+		return err
+	}
+	ScalerClient = scalepb.NewScaleClient(conn)
+	return nil
+}
 
 func NewServerless(cfg *config.Config, srv *Server, count *Counter) (*Serverless, error) {
 	s := new(Serverless)
@@ -60,6 +77,9 @@ func NewServerless(cfg *config.Config, srv *Server, count *Counter) (*Serverless
 		s.multiScales[backend.TiDBForAP].scaleInInterval = 5
 	}
 
+	ClusterName = cfg.Cluster.ClusterName
+	NameSpace = cfg.Cluster.NameSpace
+
 	s.silentPeriod = cfg.Cluster.SilentPeriod
 	s.serverlessaddr = cfg.Cluster.ServerlessAddr
 
@@ -69,6 +89,9 @@ func NewServerless(cfg *config.Config, srv *Server, count *Counter) (*Serverless
 	golog.Info("serverless", "NewServerless", "Serverless Server running", 0,
 		"address",
 		s.serverlessaddr)
+
+	GprcClientToCluster()
+
 	return s, nil
 }
 
@@ -80,7 +103,7 @@ func (sl *Serverless) CheckServerless() {
 			return
 		}
 		if needcore > currentcore {
-			sl.multiScales[tidbtype].scaleout(currentcore, needcore)
+			sl.multiScales[tidbtype].scaleout(currentcore, needcore, tidbtype)
 		} else {
 			sl.scalein(currentcore, needcore, tidbtype)
 		}
@@ -97,7 +120,7 @@ func (sl *Scale) SetLastChange(diff float64) {
 	sl.lastchange = diff
 }
 
-func (sl *Scale) SetScalein(diffcores float64) {
+func (sl *Scale) SetScalein(diffcores, needcore float64) {
 	sl.scalueincout++
 
 	if diffcores < sl.minscalinnum {
@@ -106,6 +129,14 @@ func (sl *Scale) SetScalein(diffcores float64) {
 
 	if sl.scalueincout==sl.scaleInInterval*60{
 		fmt.Printf("send scale in ")
+		req2 := &scalepb.AutoScaleRequest{
+			Clustername: ClusterName,
+			Namespace: NameSpace,
+			Curtime: time.Now().Unix(),
+			Hashrate: float32(needcore),
+			Autoscaler: 2,
+		}
+		ScalerClient.AutoScalerCluster(context.Background(),req2)
 		sl.resetscalein()
 	}
 
@@ -139,21 +170,25 @@ func (sl *Serverless) scalein(currentcore, needcore float64, tidbType string) {
 			return
 		}
 	}
-	sl.multiScales[tidbType].SetScalein(currentcore - needcore)
+	sl.multiScales[tidbType].SetScalein(currentcore - needcore, needcore)
 }
 
-func (sl *Scale) scaleout(currentcore, needcore float64) {
+func (sl *Scale) scaleout(currentcore, needcore float64, tidbtype string) {
 	sl.resetscalein()
 
 	difference := needcore - currentcore
+	req := &scalepb.AutoScaleRequest{
+		Clustername: ClusterName,
+		Namespace: NameSpace,
+		Curtime: time.Now().Unix(),
+		Hashrate: float32(needcore),
+		Autoscaler: 1,
+		Scaletype: tidbtype,
+	}
 
-	if difference == sl.lastchange {
-		if time.Now().Unix()-sl.GetlastSend() > int64(sl.resendForScaleOut) {
-			fmt.Printf("scal out current %d,needcore is %d \n", currentcore, needcore)
-			sl.SetLastChange(difference)
-		}
-	} else {
+	if (difference == sl.lastchange && time.Now().Unix()-sl.GetlastSend() > int64(sl.resendForScaleOut)) || difference != sl.lastchange {
 		fmt.Printf("scal out current %d,needcore is %d \n", currentcore, needcore)
+		ScalerClient.AutoScalerCluster(context.Background(),req)
 		sl.SetLastChange(difference)
 	}
 

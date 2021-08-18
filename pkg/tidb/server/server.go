@@ -132,7 +132,9 @@ type Server struct {
 	grpcServer     *grpc.Server
 	inShutdownMode bool
 	//for proxy
-	cluster *backend.Cluster
+	counter    *Counter
+	serverless *Serverless
+	cluster    *backend.Cluster
 }
 
 // ConnectionCount gets current connection count.
@@ -349,6 +351,12 @@ func (s *Server) Run() error {
 	//check proxy node's role.
 	go s.CheckProxyRole()
 
+	// flush counter
+	go s.flushCounter()
+
+	//run serverless
+	go s.runserverless()
+
 	// If error should be reported and exit the server it can be sent on this
 	// channel. Otherwise end with sending a nil error to signal "done"
 	errChan := make(chan error)
@@ -359,6 +367,20 @@ func (s *Server) Run() error {
 		return err
 	}
 	return <-errChan
+}
+
+func (s *Server) flushCounter() {
+	for {
+		s.counter.FlushCounter()
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func (s *Server) runserverless() {
+	for {
+		s.serverless.CheckServerless()
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func (s *Server) CheckProxyRole() {
@@ -375,6 +397,8 @@ func (s *Server) CheckProxyRole() {
 					fmt.Println("add proxy into tp pools success when proxy as a pure compute node.")
 				}
 			}
+			//todo: delete other tp type node when proxy node can deal all tp sql.
+
 		case costs > 100000:
 			//proxy service as a pure proxy node, and remove from tp type backend pools.
 			if s.cluster.ProxyNode.ProxyAsCompute {
@@ -382,7 +406,6 @@ func (s *Server) CheckProxyRole() {
 				//Invoke DeleteOneTidb api.
 				//todo: get address from config.
 				tppool.InitBalancerAfterDeleteTidb("self")
-				//s.Resetserverless()
 				s.cluster.ProxyNode.ProxyAsCompute = false
 			}
 		default:

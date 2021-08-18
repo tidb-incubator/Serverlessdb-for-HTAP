@@ -23,10 +23,10 @@ type Counter struct {
 	OldErrLogTotal  int64
 	OldSlowLogTotal int64
 
-	ClientConns  int64
-	ClientQPS    int64
-	ErrLogTotal  int64
-	SlowLogTotal int64
+	ClientConns        int64
+	ClientQPS          int64
+	ErrLogTotal        int64
+	SlowLogTotal       int64
 	QuiescentTotalTime int64
 }
 
@@ -60,12 +60,11 @@ func (counter *Counter) FlushCounter() {
 	atomic.StoreInt64(&counter.OldErrLogTotal, counter.ErrLogTotal)
 	atomic.StoreInt64(&counter.OldSlowLogTotal, counter.SlowLogTotal)
 
-	if counter.ClientQPS==0{
+	if counter.ClientQPS == 0 {
 		counter.IncrQuiescentTotalTime()
-	}else{
+	} else {
 		atomic.StoreInt64(&counter.QuiescentTotalTime, 0)
 	}
 
 	atomic.StoreInt64(&counter.ClientQPS, 0)
 }
-
