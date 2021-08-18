@@ -325,10 +325,12 @@ func CompileExecutePreparedStmt(ctx context.Context, sctx sessionctx.Context,
 		return nil, false, false, err
 	}
 	execStmt.BinaryArgs = args
+	//fmt.Printf("before sql is %s,cost is %f \n",execStmt.Text(),sctx.GetSessionVars().Cost)
 	execPlan, names, err := planner.Optimize(ctx, sctx, execStmt, is)
 	if err != nil {
 		return nil, false, false, err
 	}
+	//fmt.Printf("after sql is %s,cost is %f \n",execStmt.Text(),sctx.GetSessionVars().Cost)
 
 	stmt := &ExecStmt{
 		GoCtx:       ctx,

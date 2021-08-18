@@ -38,7 +38,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/tidb/executor"
+	"github.com/pingcap/tidb/session"
 	"math"
 	"runtime/trace"
 	"strconv"
@@ -221,18 +222,46 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		}
 	}
 
+
+
+
+
+
+	cc.ctx.GetSessionVars().Proxy.SQLtext=tidbtext.sql
+	cc.ctx.GetSessionVars().Proxy.Cost=0
+	defer func(){
+		cc.ctx.GetSessionVars().Proxy.SQLtext=""
+		cc.ctx.GetSessionVars().Proxy.Cost=0
+	}()
+
+
+
+
+
+
+
+	preparedStmt := cc.ctx.GetSessionVars().PreparedStmts[stmtID].(*plannercore.CachedPrepareStmt)
+
+		/*	switch preparedStmt.PreparedAst.Stmt.(type) {
+			case *ast.BeginStmt,*ast.CommitStmt,*ast.RollbackStmt:
+
+			}
+*/
+
+	est,_:=session.ExecutePreparedStmtForProxy(ctx,tidbtext.ctx.Session,stmtID,args)
+   fmt.Printf("prepare sql is %s,cost is %f\n",est.Text,tidbtext.ctx.GetSessionVars().Proxy.Cost)
+
 	if !conn.IsProxySelf() {
-		preparedStmt := cc.ctx.GetSessionVars().PreparedStmts[stmtID].(*plannercore.CachedPrepareStmt)
-		selectstmt, ok := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
-		if !ok {
-			return errors.Errorf("not select smt")
-		}
-		err = cc.handlePrepare(ctx,conn, selectstmt, tidbtext.sql, argsproxy)
+
+	//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
+		err = cc.handlePrepare(ctx,conn, preparedStmt, tidbtext.sql, argsproxy)
 		return err
 	} else {
 		ctx = context.WithValue(ctx, execdetails.StmtExecDetailKey, &execdetails.StmtExecDetails{})
 		ctx = context.WithValue(ctx, util.ExecDetailsKey, &util.ExecDetails{})
-		retryable, err := cc.executePreparedStmtAndWriteResult(ctx, stmt, args, useCursor)
+
+		retryable, err := cc.executePreparedStmtAndWriteResultForProxy(ctx, stmt, est, useCursor)
+		fmt.Printf("right sql is %s,cost is %f \n",tidbtext.sql,cc.ctx.GetSessionVars().Proxy.Cost)
 		_, allowTiFlashFallback := cc.ctx.GetSessionVars().AllowFallbackToTiKV[kv.TiFlash]
 		if allowTiFlashFallback && err != nil && errors.ErrorEqual(err, storeerr.ErrTiFlashServerTimeout) && retryable {
 			// When the TiFlash server seems down, we append a warning to remind the user to check the status of the TiFlash
@@ -242,7 +271,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 			defer func() {
 				cc.ctx.GetSessionVars().IsolationReadEngines[kv.TiFlash] = struct{}{}
 			}()
-			_, err = cc.executePreparedStmtAndWriteResult(ctx, stmt, args, useCursor)
+			_, err = cc.executePreparedStmtAndWriteResultForProxy(ctx, stmt, est, useCursor)
 			// We append warning after the retry because `ResetContextOfStmt` may be called during the retry, which clears warnings.
 			cc.ctx.GetSessionVars().StmtCtx.AppendError(prevErr)
 		}
@@ -284,6 +313,46 @@ func (cc *clientConn) executePreparedStmtAndWriteResult(ctx context.Context, stm
 	}
 	return false, nil
 }
+//************
+// The first return value indicates whether the call of executePreparedStmtAndWriteResult has no side effect and can be retried.
+// Currently the first return value is used to fallback to TiKV when TiFlash is down.
+func (cc *clientConn) executePreparedStmtAndWriteResultForProxy(ctx context.Context, stmt PreparedStatement, st *executor.ExecStmt, useCursor bool) (bool, error) {
+	//rs, err := stmt.Execute(ctx, args)
+	rs, err :=ExecuteForProxy(ctx,stmt,st)
+	if err != nil {
+		return true, errors.Annotate(err, cc.preparedStmt2String(uint32(stmt.ID())))
+	}
+	if rs == nil {
+		return false, cc.writeOK(ctx)
+	}
+
+	// if the client wants to use cursor
+	// we should hold the ResultSet in PreparedStatement for next stmt_fetch, and only send back ColumnInfo.
+	// Tell the client cursor exists in server by setting proper serverStatus.
+	if useCursor {
+		stmt.StoreResultSet(rs)
+		err = cc.writeColumnInfo(rs.Columns(), mysql.ServerStatusCursorExists)
+		if err != nil {
+			return false, err
+		}
+		if cl, ok := rs.(fetchNotifier); ok {
+			cl.OnFetchReturned()
+		}
+		// explicitly flush columnInfo to client.
+		return false, cc.flush(ctx)
+	}
+	defer terror.Call(rs.Close)
+	retryable, err := cc.writeResultset(ctx, rs, true, 0, 0)
+	if err != nil {
+		return retryable, errors.Annotate(err, cc.preparedStmt2String(uint32(stmt.ID())))
+	}
+	return false, nil
+}
+
+
+
+
+//********
 
 // maxFetchSize constants
 const (

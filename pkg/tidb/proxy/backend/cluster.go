@@ -68,7 +68,7 @@ func (cluster *Cluster) GetTidbConn() (*BackendConn, error) {
 	if err != nil {
 		return nil, err
 	}
-   db.Self=false
+     db.Self=true
 	if db == nil {
 		return nil, errors.ErrNoTidbDB
 	}

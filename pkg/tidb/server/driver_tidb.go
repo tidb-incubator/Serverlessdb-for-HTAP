@@ -16,20 +16,27 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"sync/atomic"
-"strings"
+	"github.com/pingcap/tidb/executor"
+
+	//"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
+	//"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
+	//"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
+	//	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/sqlexec"
+
+	"sync/atomic"
+	//	"time"
 )
 
 // TiDBDriver implements IDriver.
@@ -74,6 +81,26 @@ func (ts *TiDBStatement) ID() int {
 // Execute implements PreparedStatement Execute method.
 func (ts *TiDBStatement) Execute(ctx context.Context, args []types.Datum) (rs ResultSet, err error) {
 	tidbRecordset, err := ts.ctx.ExecutePreparedStmt(ctx, ts.id, args)
+	if err != nil {
+		return nil, err
+	}
+	if tidbRecordset == nil {
+		return
+	}
+	rs = &tidbResultSet{
+		recordSet:    tidbRecordset,
+		preparedStmt: ts.ctx.GetSessionVars().PreparedStmts[ts.id].(*core.CachedPrepareStmt),
+	}
+	return
+}
+
+
+// Execute implements PreparedStatement Execute method.
+func ExecuteForProxy(ctx context.Context,tidbstmt PreparedStatement ,st *executor.ExecStmt) (rs ResultSet, err error) {
+	ts,_:=tidbstmt.(*TiDBStatement)
+//	tidbRecordset, err := ts.ctx.ExecutePreparedStmt(ctx, ts.id, args)
+	tidbRecordset, err :=session.PreparedStmtExecRunForProxy(ctx,ts.ctx.Session,st)
+
 	if err != nil {
 		return nil, err
 	}
@@ -220,9 +247,6 @@ func (tc *TiDBContext) WarningCount() uint16 {
 func (tc *TiDBContext) ExecuteStmt(ctx context.Context, stmt ast.StmtNode) (ResultSet, error) {
 	rs, err := tc.Session.ExecuteStmt(ctx, stmt)
 	if err != nil {
-		if  !strings.Contains(err.Error(),"Proxy") {
-			tc.Session.GetSessionVars().StmtCtx.AppendError(err)
-		}
 		return nil, err
 	}
 	if rs == nil {
@@ -232,6 +256,32 @@ func (tc *TiDBContext) ExecuteStmt(ctx context.Context, stmt ast.StmtNode) (Resu
 		recordSet: rs,
 	}, nil
 }
+//*************************
+func (tc *TiDBContext) GotStmtCostForProxy(ctx context.Context, stmt ast.StmtNode) (sqlexec.Statement, error) {
+
+	return session.ExecuteStmtForProxy(ctx,tc.Session,stmt)
+}
+
+
+func (tc *TiDBContext) ExecStmtForProxy(ctx context.Context, stmt sqlexec.Statement) (ResultSet, error) {
+
+	rs, err := session.RunStmtForProxy(ctx,tc.Session,stmt)
+	if err != nil {
+		return nil, err
+	}
+	if rs == nil {
+		return nil, nil
+	}
+	return &tidbResultSet{
+		recordSet: rs,
+	}, nil
+}
+
+
+
+//********************
+
+
 
 // Close implements QueryCtx Close method.
 func (tc *TiDBContext) Close() error {

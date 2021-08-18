@@ -1631,7 +1631,7 @@ func (s *session) ExecuteStmt(ctx context.Context, stmtNode ast.StmtNode) (sqlex
 
 		// Only print log message when this SQL is from the user.
 		// Mute the warning for internal SQLs.
-		if !s.sessionVars.InRestrictedSQL && !strings.Contains(err.Error(),"Proxy") {
+		if !s.sessionVars.InRestrictedSQL  {
 			logutil.Logger(ctx).Warn("compile SQL failed", zap.Error(err), zap.String("SQL", stmtNode.Text()))
 		}
 		return nil, err
@@ -1669,6 +1669,75 @@ func (s *session) ExecuteStmt(ctx context.Context, stmtNode ast.StmtNode) (sqlex
 	}
 	return recordSet, nil
 }
+
+
+//***********
+func ExecuteStmtForProxy(ctx context.Context,sess Session, stmtNode ast.StmtNode) (sqlexec.Statement, error) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("session.ExecuteStmt", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+    s,_:=sess.(*session)
+	s.PrepareTxnCtx(ctx)
+	err := s.loadCommonGlobalVariablesIfNeeded()
+	if err != nil {
+		return nil, err
+	}
+
+	s.sessionVars.StartTime = time.Now()
+
+	// Some executions are done in compile stage, so we reset them before compile.
+	if err := executor.ResetContextOfStmt(s, stmtNode); err != nil {
+		return nil, err
+	}
+	normalizedSQL, digest := s.sessionVars.StmtCtx.SQLDigest()
+	if variable.TopSQLEnabled() {
+		ctx = topsql.AttachSQLInfo(ctx, normalizedSQL, digest, "", nil, s.sessionVars.InRestrictedSQL)
+	}
+
+	if err := s.validateStatementReadOnlyInStaleness(stmtNode); err != nil {
+		return nil, err
+	}
+
+	// Uncorrelated subqueries will execute once when building plan, so we reset process info before building plan.
+	cmd32 := atomic.LoadUint32(&s.GetSessionVars().CommandValue)
+	s.SetProcessInfo(stmtNode.Text(), time.Now(), byte(cmd32), 0)
+	s.txn.onStmtStart(digest.String())
+	defer s.txn.onStmtEnd()
+
+	failpoint.Inject("mockStmtSlow", nil)
+
+	// Transform abstract syntax tree to a physical plan(stored in executor.ExecStmt).
+	compiler := executor.Compiler{Ctx: s}
+	stmt, err := compiler.Compile(ctx, stmtNode)
+	if err != nil {
+		s.rollbackOnError(ctx)
+
+		// Only print log message when this SQL is from the user.
+		// Mute the warning for internal SQLs.
+		if !s.sessionVars.InRestrictedSQL  {
+			logutil.Logger(ctx).Warn("compile SQL failed", zap.Error(err), zap.String("SQL", stmtNode.Text()))
+		}
+		return nil, err
+	}
+	durCompile := time.Since(s.sessionVars.StartTime)
+	s.GetSessionVars().DurationCompile = durCompile
+	if s.isInternal() {
+		sessionExecuteCompileDurationInternal.Observe(durCompile.Seconds())
+	} else {
+		sessionExecuteCompileDurationGeneral.Observe(durCompile.Seconds())
+	}
+	s.currentPlan = stmt.Plan
+
+	// Execute the physical plan.
+	logStmt(stmt, s)
+	return stmt,nil
+}
+
+
+
+//*****************
 
 func (s *session) validateStatementReadOnlyInStaleness(stmtNode ast.StmtNode) error {
 	vars := s.GetSessionVars()
@@ -1775,6 +1844,33 @@ func runStmt(ctx context.Context, se *session, s sqlexec.Statement) (rs sqlexec.
 	}
 	return nil, err
 }
+
+func RunStmtForProxy(ctx context.Context, s Session, stmt sqlexec.Statement) (sqlexec.RecordSet, error) {
+	sess,_:= s.(*session)
+	recordSet, err := runStmt(ctx, sess, stmt)
+	if err != nil {
+		if !kv.ErrKeyExists.Equal(err) {
+			logutil.Logger(ctx).Warn("run statement failed",
+				zap.Int64("schemaVersion", sess.GetInfoSchema().SchemaMetaVersion()),
+				zap.Error(err),
+				zap.String("session", sess.String()))
+		}
+		return nil, err
+	}
+	if !sess.isInternal() && config.GetGlobalConfig().EnableTelemetry {
+		telemetry.CurrentExecuteCount.Inc()
+		execstmt,_:=stmt.(*executor.ExecStmt)
+		tiFlashPushDown, tiFlashExchangePushDown := plannercore.IsTiFlashContained(execstmt.Plan)
+		if tiFlashPushDown {
+			telemetry.CurrentTiFlashPushDownCount.Inc()
+		}
+		if tiFlashExchangePushDown {
+			telemetry.CurrentTiFlashExchangePushDownCount.Inc()
+		}
+	}
+	return recordSet, nil
+}
+
 
 // ExecStmtVarKeyType is a dummy type to avoid naming collision in context.
 type ExecStmtVarKeyType int
@@ -1889,8 +1985,39 @@ func (s *session) preparedStmtExec(ctx context.Context,
 	}
 	sessionExecuteCompileDurationGeneral.Observe(time.Since(s.sessionVars.StartTime).Seconds())
 	logGeneralQuery(st, s, true)
+
+
 	return runStmt(ctx, s, st)
 }
+
+func PreparedStmtExecRunForProxy(ctx context.Context,sess Session,st sqlexec.Statement) (sqlexec.RecordSet, error) {
+	s,_:=sess.(*session)
+	return runStmt(ctx, s, st)
+}
+
+func  PreparedStmtExecForProxy (ctx context.Context, sess Session,
+	is infoschema.InfoSchema, snapshotTS uint64,
+	stmtID uint32, prepareStmt *plannercore.CachedPrepareStmt, args []types.Datum) (*executor.ExecStmt, error) {
+	s,_:=sess.(*session)
+	st, tiFlashPushDown, tiFlashExchangePushDown, err := executor.CompileExecutePreparedStmt(ctx, s, stmtID, is, snapshotTS, args)
+	if err != nil {
+		return nil, err
+	}
+	if !s.isInternal() && config.GetGlobalConfig().EnableTelemetry {
+		telemetry.CurrentExecuteCount.Inc()
+		if tiFlashPushDown {
+			telemetry.CurrentTiFlashPushDownCount.Inc()
+		}
+		if tiFlashExchangePushDown {
+			telemetry.CurrentTiFlashExchangePushDownCount.Inc()
+		}
+	}
+	sessionExecuteCompileDurationGeneral.Observe(time.Since(s.sessionVars.StartTime).Seconds())
+	logGeneralQuery(st, s, true)
+	return st,nil
+}
+
+
 
 // cachedPlanExec short path currently ONLY for cached "point select plan" execution
 func (s *session) cachedPlanExec(ctx context.Context,
@@ -2013,6 +2140,8 @@ func (s *session) IsCachedExecOk(ctx context.Context, preparedStmt *plannercore.
 func (s *session) ExecutePreparedStmt(ctx context.Context, stmtID uint32, args []types.Datum) (sqlexec.RecordSet, error) {
 	s.PrepareTxnCtx(ctx)
 	var err error
+
+
 	s.sessionVars.StartTime = time.Now()
 	preparedPointer, ok := s.sessionVars.PreparedStmts[stmtID]
 	if !ok {
@@ -2024,6 +2153,7 @@ func (s *session) ExecutePreparedStmt(ctx context.Context, stmtID uint32, args [
 	if !ok {
 		return nil, errors.Errorf("invalid CachedPrepareStmt type")
 	}
+
 	executor.CountStmtNode(preparedStmt.PreparedAst.Stmt, s.sessionVars.InRestrictedSQL)
 	ok, err = s.IsCachedExecOk(ctx, preparedStmt)
 	if err != nil {
@@ -2052,6 +2182,50 @@ func (s *session) ExecutePreparedStmt(ctx context.Context, stmtID uint32, args [
 	}
 	return s.preparedStmtExec(ctx, is, snapshotTS, stmtID, preparedStmt, args)
 }
+
+
+// ExecutePreparedStmt executes a prepared statement.
+func ExecutePreparedStmtForProxy(ctx context.Context, sess Session,stmtID uint32, args []types.Datum) (*executor.ExecStmt, error) {
+	s,_:=sess.(*session)
+	s.PrepareTxnCtx(ctx)
+	var err error
+
+
+	s.sessionVars.StartTime = time.Now()
+	preparedPointer, ok := s.sessionVars.PreparedStmts[stmtID]
+	if !ok {
+		err = plannercore.ErrStmtNotFound
+		logutil.Logger(ctx).Error("prepared statement not found", zap.Uint32("stmtID", stmtID))
+		return nil, err
+	}
+	preparedStmt, ok := preparedPointer.(*plannercore.CachedPrepareStmt)
+	if !ok {
+		return nil, errors.Errorf("invalid CachedPrepareStmt type")
+	}
+
+	executor.CountStmtNode(preparedStmt.PreparedAst.Stmt, s.sessionVars.InRestrictedSQL)
+
+	s.txn.onStmtStart(preparedStmt.SQLDigest.String())
+	defer s.txn.onStmtEnd()
+	var is infoschema.InfoSchema
+	var snapshotTS uint64
+	if preparedStmt.ForUpdateRead {
+		is = domain.GetDomain(s).InfoSchema()
+	} else if preparedStmt.SnapshotTSEvaluator != nil {
+		snapshotTS, err = preparedStmt.SnapshotTSEvaluator(s)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		is, err = getSnapshotInfoSchema(s, snapshotTS)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	} else {
+		is = s.GetInfoSchema().(infoschema.InfoSchema)
+	}
+	return PreparedStmtExecForProxy(ctx, sess,is, snapshotTS, stmtID, preparedStmt, args)
+}
+
 
 func (s *session) DropPreparedStmt(stmtID uint32) error {
 	vars := s.sessionVars
