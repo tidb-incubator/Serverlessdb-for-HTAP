@@ -38,6 +38,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/session"
 	"math"
@@ -178,12 +179,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 	args := make([]types.Datum, numParams)
 
 	argsproxy := make([]interface{}, numParams)
-	cluster := cc.server.cluster
-	conn, err := cc.getBackendConn(cluster)
-	defer cc.closeConn(conn, false)
-	if err != nil {
-		return err
-	}
+
 
 	tidbtext, _ := stmt.(*TiDBStatement)
 	if numParams > 0 {
@@ -211,11 +207,9 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 			paramValues = data[pos+1:]
 		}
 
-		if conn.IsProxySelf() {
+
 			err = parseExecArgs(cc.ctx.GetSessionVars().StmtCtx, args, stmt.BoundParams(), nullBitmaps, stmt.GetParamsType(), paramValues)
-		} else {
-			 err = cc.bindStmtArgs(tidbtext, argsproxy,stmt.BoundParams(),nullBitmaps, paramTypes, paramValues);
-		}
+
 		stmt.Reset()
 		if err != nil {
 			return errors.Annotate(err, cc.preparedStmt2String(stmtID))
@@ -224,7 +218,15 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 
 
 
+	switch tidbtext.s.(type) {
 
+	case *ast.BeginStmt:
+		return  cc.handleBegin()
+	case *ast.CommitStmt:
+		return cc.handleCommit()
+	case *ast.RollbackStmt:
+		return cc.handleRollback()
+	}
 
 
 	cc.ctx.GetSessionVars().Proxy.SQLtext=tidbtext.sql
@@ -251,8 +253,16 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 	est,_:=session.ExecutePreparedStmtForProxy(ctx,tidbtext.ctx.Session,stmtID,args)
    fmt.Printf("prepare sql is %s,cost is %f\n",est.Text,tidbtext.ctx.GetSessionVars().Proxy.Cost)
 
-	if !conn.IsProxySelf() {
+	cluster := cc.server.cluster
+	conn, err := cc.getBackendConn(cluster)
+	defer cc.closeConn(conn, false)
+	if err != nil {
+		return err
+	}
 
+
+	if !conn.IsProxySelf() {
+		err = cc.bindStmtArgs(tidbtext, argsproxy,stmt.BoundParams(),nullBitmaps, paramTypes, paramValues);
 	//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
 		err = cc.handlePrepare(ctx,conn, preparedStmt, tidbtext.sql, argsproxy)
 		return err
