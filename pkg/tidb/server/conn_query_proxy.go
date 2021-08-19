@@ -43,7 +43,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 	sessionVars := c.ctx.GetSessionVars()
 	if !sessionVars.InTxn() {
 		//fmt.Println("no tran")
-		co, err = cluster.GetTidbConn(int64(sessionVars.Cost))
+		co, err = cluster.GetTidbConn(int64(sessionVars.Proxy.Cost))
 		if err != nil {
 			return
 		}
@@ -51,7 +51,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 		co = c.txConn
 
 		if co == nil {
-			if co, err = cluster.GetTidbConn(int64(sessionVars.Cost)); err != nil {
+			if co, err = cluster.GetTidbConn(int64(sessionVars.Proxy.Cost)); err != nil {
 				return
 			}
 			if !sessionVars.IsAutocommit() {
@@ -98,7 +98,7 @@ func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	}
 	defer conn.Close()
 	dbtype := conn.GetDbType()
-	cost := int64(sessionVars.Cost)
+	cost := int64(sessionVars.Proxy.Cost)
 	if !conn.IsProxySelf() && (dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP) {
 		atomic.AddInt64(&c.server.cluster.BackendPools[dbtype].Costs, -cost)
 	}

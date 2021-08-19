@@ -199,6 +199,12 @@ func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 		globalConnID:      util.GlobalConnID{ServerID: 0, Is64bits: true},
 	}
 
+	if sl, err := parseServerless(s.cfg.Proxycfg, s, s.counter); err != nil {
+		return nil, err
+	} else {
+		s.serverless = sl
+	}
+
 	cluster, err := parseCluster(cfg.Proxycfg.Cluster)
 	if err != nil {
 		return nil, err
@@ -286,6 +292,17 @@ func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 	variable.RegisterStatistics(s)
 
 	return s, nil
+}
+
+
+func parseServerless(cfg *proxyconfig.Config, server *Server, count *Counter) (*Serverless, error) {
+	var sl *Serverless
+	sl, err := NewServerless(cfg, server, count)
+	if err != nil {
+		return nil, err
+	}
+	//fmt.Printf("%+v",*sl)
+	return sl, nil
 }
 
 //for proxy
