@@ -25,16 +25,15 @@ var configFileName string
 
 //整个config文件对应的结构
 type Config struct {
-
 	WebAddr     string `yaml:"web_addr"`
 	WebUser     string `yaml:"web_user"`
 	WebPassword string `yaml:"web_password"`
 
-	SlowLogTime int          `yaml:"slow_log_time"`
-	AllowIps    string       `yaml:"allow_ips"`
+	SlowLogTime int    `yaml:"slow_log_time"`
+	AllowIps    string `yaml:"allow_ips"`
 
-	Charset     string       `yaml:"proxy_charset"`
-	Cluster    ClusterConfig `yaml:"clusters"`
+	Charset string        `yaml:"proxy_charset"`
+	Cluster ClusterConfig `yaml:"clusters"`
 }
 
 //user_list对应的配置
@@ -45,12 +44,14 @@ type UserConfig struct {
 
 //node节点对应的配置
 type ClusterConfig struct {
+	ClusterName      string `yaml:"clustername"`
+	NameSpace        string `yaml:"namespace"`
 	DownAfterNoAlive int    `yaml:"down_after_noalive"`
 	//for serverless
-	ServerlessAddr string `yaml:"serverless_addr"`
+	ServerlessAddr    string `yaml:"serverless_addr"`
 	ResendForScaleOUT int    `yaml:"resend_for_scale_out"`
-	ScaleInInterval  int  `yaml:"scale_in_interval"`
-	SilentPeriod   int     `yaml:"silent_period"`
+	ScaleInInterval   int    `yaml:"scale_in_interval"`
+	SilentPeriod      int    `yaml:"silent_period"`
 
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`

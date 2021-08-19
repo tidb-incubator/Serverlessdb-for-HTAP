@@ -35,6 +35,11 @@ const (
 	PingPeroid        int64 = 4
 )
 
+const (
+	//BigCost indicates whether the current node is a BigCost AP type node.
+	BigCost = "bigcost"
+)
+
 type DB struct {
 	sync.RWMutex
 
@@ -54,7 +59,9 @@ type DB struct {
 	pushConnCount int64
 	popConnCount  int64
 	usingConnsCount int64
+	//Self indicates whether the current node is a proxy node.
 	Self bool
+	dbType string
 }
 
 func Open(addr string, user string, password string, dbName string,weight float64) (*DB, error) {
@@ -415,6 +422,9 @@ func (p *BackendConn) IsProxySelf() bool {
 	return p.db.Self
 }
 
+func (p *BackendConn) GetDbType() string {
+	return p.db.dbType
+}
 
 func (p *BackendConn) SetNoDelayTrue() {
 	tcptemp := p.Conn.conn.(*net.TCPConn)
