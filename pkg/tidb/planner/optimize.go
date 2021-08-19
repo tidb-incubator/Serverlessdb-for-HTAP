@@ -123,21 +123,20 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 
 	sctx.PrepareTSFuture(ctx)
 
-	bestPlan, names, cost, err := optimize(ctx, sctx, node, is)
+	bestPlan, names, _, err := optimize(ctx, sctx, node, is)
 	if err != nil {
 		return nil, nil, err
 	}
 
 
-	if !sctx.GetSessionVars().InRestrictedSQL&&sctx.GetSessionVars().Proxy.SQLtext==node.Text(){
-		fmt.Printf("in opt sql is %s,cost is %f \n",node.Text(),cost)
+/*	if !sctx.GetSessionVars().InRestrictedSQL&&sctx.GetSessionVars().Proxy.Cost==0{
 		sctx.GetSessionVars().Proxy.Cost=cost
-	/*	if node.Text()==""{
+		if node.Text()==""{
 			debug.PrintStack()
 		}
-*/
-	}
 
+	}
+*/
 
 
 
