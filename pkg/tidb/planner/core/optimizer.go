@@ -15,6 +15,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"math"
 
 	"github.com/pingcap/errors"
@@ -161,6 +162,12 @@ func DoOptimize(ctx context.Context, sctx sessionctx.Context, flag uint64, logic
 		planCounter = -1
 	}
 	physical, cost, err := physicalOptimize(logic, &planCounter)
+
+	if !sctx.GetSessionVars().InRestrictedSQL&&sctx.GetSessionVars().Proxy.Cost==0{
+		fmt.Printf("do opt sql is %s,cost is %f \n",sctx.GetSessionVars().Proxy.SQLtext,cost)
+		sctx.GetSessionVars().Proxy.Cost=cost
+	}
+
 	if err != nil {
 		return nil, 0, err
 	}
