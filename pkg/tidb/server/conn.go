@@ -41,7 +41,7 @@ import (
 	"encoding/binary"
 	goerr "errors"
 	"fmt"
-	utilproxy "github.com/pingcap/tidb/proxy/util"
+	//utilproxy "github.com/pingcap/tidb/proxy/util"
 	"io"
 	"net"
 	"runtime"
@@ -71,6 +71,7 @@ import (
 	plannercore "github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/plugin"
 	"github.com/pingcap/tidb/privilege"
+	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
@@ -87,7 +88,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/client-go/v2/util"
 	"go.uber.org/zap"
-	"github.com/pingcap/tidb/proxy/backend"
 )
 
 const (
@@ -1644,8 +1644,10 @@ func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 		return cc.writeOK(ctx)
 	}
 
-	cc.ctx.GetSessionVars().Userquery=true
-	defer func() {cc.ctx.GetSessionVars().Userquery=false
+	cc.ctx.GetSessionVars().Proxy.Userquery = true
+
+	defer func() {
+		cc.ctx.GetSessionVars().Proxy.Userquery = false
 	}()
 
 	warns := sc.GetWarnings()
@@ -1822,42 +1824,60 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 	ctx = context.WithValue(ctx, util.ExecDetailsKey, &util.ExecDetails{})
 	reg := trace.StartRegion(ctx, "ExecuteStmt")
 
-	conn, err := cc.getBackendConn(cc.server.cluster)
-		defer cc.closeConn(conn, false)
-
-	if err != nil {
-		return false,err
-	}
-
-	sctx:=cc.ctx
-	if  sctx.GetSessionVars().Userquery && !conn.IsProxySelf(){
+	var err error
+	sctx := cc.ctx
+	if sctx.GetSessionVars().Proxy.Userquery {
 		switch stmt.(type) {
-		case *ast.InsertStmt, *ast.UpdateStmt, *ast.DeleteStmt,*ast.SelectStmt:
-			sctx.GetSessionVars().CurrentRole=utilproxy.Proxy
-			defer func(){
-				sctx.GetSessionVars().CurrentRole=utilproxy.TIDB
-			}()
 		case *ast.BeginStmt:
-			err =cc.handleBegin()
-			return false,err
+			err = cc.handleBegin()
+			return false, err
 		case *ast.CommitStmt:
-			err =cc.handleCommit()
-			return false,err
+			err = cc.handleCommit()
+			return false, err
 		case *ast.RollbackStmt:
-			err= cc.handleRollback()
-			return false,err
+			err = cc.handleRollback()
+			return false, err
 		default:
 		}
 	}
 
+	cc.ctx.GetSessionVars().Proxy.SQLtext = stmt.Text()
 
-	rs, err := cc.ctx.ExecuteStmt(ctx, stmt)
+	defer func() {
+		cc.ctx.GetSessionVars().Proxy.SQLtext=""
+	}()
 
-	if sctx.GetSessionVars().CurrentRole==utilproxy.Proxy {
-		err:=cc.handleDMLForProxy(ctx,conn,stmt)
-    	return false,err
+	stmtcost, err := cc.ctx.GotStmtCostForProxy(ctx, stmt)
+	if err != nil {
+		return false, err
+	}
+    fmt.Printf("new sql is %s,cost is %f \n",stmt.Text(),cc.ctx.GetSessionVars().Proxy.Cost)
+	conn, err := cc.getBackendConn(cc.server.cluster)
+	defer cc.closeConn(conn, false)
+	if err != nil {
+		return false, err
 	}
 
+
+	//
+	if sctx.GetSessionVars().Proxy.Userquery&& !conn.IsProxySelf() {
+		switch stmt.(type) {
+		case *ast.InsertStmt, *ast.UpdateStmt, *ast.DeleteStmt, *ast.SelectStmt:
+			err := cc.handleDMLForProxy(ctx, conn, stmt)
+			return false, err
+		}
+	}
+
+	//
+	/*
+	   	rs, err := cc.ctx.ExecuteStmt(ctx, stmt)
+
+	   	if sctx.GetSessionVars().CurrentRole==utilproxy.Proxy {
+	   		err:=cc.handleDMLForProxy(ctx,conn,stmt)
+	       	return false,err
+	   	}
+	*/
+	rs, err := cc.ctx.ExecStmtForProxy(ctx, stmtcost)
 
 	reg.End()
 	// The session tracker detachment from global tracker is solved in the `rs.Close` in most cases.

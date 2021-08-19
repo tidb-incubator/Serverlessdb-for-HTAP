@@ -16,13 +16,13 @@ package planner
 import (
 	"context"
 	"fmt"
-	utilproxy "github.com/pingcap/tidb/proxy/util"
 	"math"
+	//"runtime/debug"
 	"runtime/trace"
 	"strings"
 	"sync"
 	"time"
-
+	//"runtime/debug"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser"
 	"github.com/pingcap/parser/ast"
@@ -129,13 +129,17 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 	}
 
 
-	sctx.GetSessionVars().Cost=cost
-
-
-	if sctx.GetSessionVars().CurrentRole==utilproxy.Proxy {
-			return nil,nil,errors.New("Proxy")
-
+	if !sctx.GetSessionVars().InRestrictedSQL&&sctx.GetSessionVars().Proxy.SQLtext==node.Text(){
+		fmt.Printf("in opt sql is %s,cost is %f \n",node.Text(),cost)
+		sctx.GetSessionVars().Proxy.Cost=cost
+	/*	if node.Text()==""{
+			debug.PrintStack()
+		}
+*/
 	}
+
+
+
 
 	if !(sessVars.UsePlanBaselines || sessVars.EvolvePlanBaselines) {
 		return bestPlan, names, nil

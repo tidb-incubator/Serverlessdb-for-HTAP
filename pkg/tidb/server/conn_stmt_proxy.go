@@ -17,18 +17,20 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	plannercore "github.com/pingcap/tidb/planner/core"
+
 	//"github.com/pingcap/errors"
 	//"github.com/pingcap/tidb/types"
 	"math"
 	//"strconv"
 	//"strings"
-  "context"
+	"context"
+	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/tidb/proxy/backend"
 	//"github.com/pingcap/tidb/proxy/core/golog"
 	"github.com/pingcap/tidb/proxy/mysql"
-	"github.com/pingcap/tidb/util/hack"
-	"github.com/pingcap/tidb/proxy/backend"
-	"github.com/pingcap/parser/ast"
 	_ "github.com/pingcap/tidb/types/parser_driver"
+	"github.com/pingcap/tidb/util/hack"
 )
 
 var paramFieldData []byte
@@ -42,7 +44,7 @@ func init() {
 	columnFieldData = c.Dump()
 }
 
-func (c *clientConn) handlePrepare(ctx context.Context,conn *backend.BackendConn,stmt *ast.SelectStmt, sql string, args []interface{}) error {
+func (c *clientConn) handlePrepare(ctx context.Context,conn *backend.BackendConn,planstmt *plannercore.CachedPrepareStmt, sql string, args []interface{}) error {
 	var rs *mysql.Result
 	stmtctx := c.ctx.GetSessionVars().StmtCtx
 	rs, err := c.executeInNode(conn, sql, args)
@@ -54,7 +56,8 @@ func (c *clientConn) handlePrepare(ctx context.Context,conn *backend.BackendConn
 		err = c.writeResultsetForProxy(ctx, rs.Resultset)
 	} else {
 		if stmtctx.InSelectStmt {
-			r := c.newEmptyResultsetAst(stmt)
+			selectstmt, _ := planstmt.PreparedAst.Stmt.(*ast.SelectStmt)
+			r := c.newEmptyResultsetAst(selectstmt)
 			err = c.writeResultsetForProxy(ctx, r)
 		}
 		if stmtctx.InDeleteStmt || stmtctx.InInsertStmt || stmtctx.InUpdateStmt {

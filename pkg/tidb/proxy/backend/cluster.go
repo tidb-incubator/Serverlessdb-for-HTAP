@@ -84,8 +84,6 @@ func (cluster *Cluster) GetTidbConn(cost int64) (*BackendConn, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Println("cost is ", cost, db.addr, db.Self, db.dbType, db.db, db.user, db.password)
 	if db == nil {
 		return nil, errors.ErrNoTidbDB
 	}

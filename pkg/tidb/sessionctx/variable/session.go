@@ -483,9 +483,8 @@ type SessionVars struct {
 	// StmtCtx holds variables for current executing statement.
 	StmtCtx *stmtctx.StatementContext
 	//for proxy
-	Userquery bool
-	Cost float64
-	CurrentRole int32
+	Proxy ProxyContext
+	//CurrentRole int32
 
 	// AllowAggPushDown can be set to false to forbid aggregation push down.
 	AllowAggPushDown bool
@@ -875,6 +874,12 @@ type SessionVars struct {
 
 	// TemporaryTableData stores committed kv values for temporary table for current session.
 	TemporaryTableData kv.MemBuffer
+}
+
+type ProxyContext struct {
+	Userquery bool
+	Cost float64
+	SQLtext string
 }
 
 // AllocMPPTaskID allocates task id for mpp tasks. It will reset the task id if the query's
