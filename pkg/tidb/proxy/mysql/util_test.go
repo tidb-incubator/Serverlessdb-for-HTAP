@@ -18,7 +18,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/pingcap/tidb/core/hack"
+	"github.com/pingcap/tidb/proxy/core/hack"
 )
 
 func TestCalcPassword(t *testing.T) {

@@ -329,7 +329,7 @@ func (cluster *Pool) DownTidb(addr string, state int32) error {
 }
 
 //TidbStr(127.0.0.1:3306@2,192.168.0.12:3306@3)
-func (cluster *Cluster) ParseTidbs(Tidbs string) error {
+func (pool *Pool) ParseTidbs(Tidbs string,cfg config.ClusterConfig) error {
 	var db *DB
 	var weight float64
 	var err error
@@ -340,9 +340,6 @@ func (cluster *Cluster) ParseTidbs(Tidbs string) error {
 	Tidbs = strings.Trim(Tidbs, TidbSplit)
 	TidbArray := strings.Split(Tidbs, TidbSplit)
 	count := len(TidbArray)
-	pool := cluster.BackendPools[TiDBForTP]
-	pool.Tidbs = make([]*DB, 0, count)
-	pool.TidbsWeights = make([]float64, 0, count)
 
 	//parse addr and weight
 	for i := 0; i < count; i++ {
@@ -356,14 +353,16 @@ func (cluster *Cluster) ParseTidbs(Tidbs string) error {
 			weight = 1
 		}
 		pool.TidbsWeights = append(pool.TidbsWeights, weight)
-		if db, err = cluster.OpenDB(addrAndWeight[0],weight); err != nil {
+		if db, err = Open(addrAndWeight[0], cfg.User, cfg.Password, "", weight); err != nil {
 			continue
 		}
 
 		if db.addr == "self" {
 			db.Self = true
-			cluster.ProxyNode.ProxyAsCompute = true
+			//cluster.ProxyNode.ProxyAsCompute = true
 		}
+
+
 
 		pool.Tidbs = append(pool.Tidbs, db)
 	}
