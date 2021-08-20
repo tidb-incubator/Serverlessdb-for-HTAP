@@ -33,10 +33,9 @@ const AllInstanceLabelKey string = "bcrds.cmss.com/instance"
 type Service struct{}
 
 func (s *Service) ScaleTempCluster(ctx context.Context, request *scalepb.TempClusterRequest) (*scalepb.TempClusterReply, error) {
-	var svcName string
+	klog.Infof("[%s/%s]HandleLargeTc method is called, the svcName is %s\n", request.Namespace, request.Clustername)
 	var res scalepb.TempClusterReply
 	if request.Start == true {
-		klog.Infof("[%s/%s]come to create large tc--------hashrate %s\n", request.Namespace, request.Clustername)
 		svcName, err := StartLargeTc(request.Clustername, request.Namespace)
 		res.StartAddr = svcName
 		if err != nil {
@@ -44,21 +43,21 @@ func (s *Service) ScaleTempCluster(ctx context.Context, request *scalepb.TempClu
 			res.Success = false
 			return &res, err
 		}
+		klog.Infof("[%s/%s]finish create large tc--------Addr %s\n", request.Namespace, request.Clustername,svcName)
 		res.Success = true
 		return &res, err
 	} else if request.StopAddr != "" {
-		klog.Infof("[%s/%s]come to delete large tc--------hashrate %s\n", request.Namespace, request.Clustername)
 		err := StopLargeTc(request.Clustername, request.Namespace, request.StopAddr)
 		if err != nil {
 			klog.Errorf("[%s/%s]StopLargeTc failed: %s", request.Namespace, request.Clustername, err)
 			res.Success = false
 			return &res, err
 		}
+		klog.Infof("[%s/%s]finish delete large tc--------Addr %s\n", request.Namespace, request.Clustername,request.StopAddr)
 		res.Success = true
 		return &res, err
 	}
-	klog.Infof("[%s/%s]HandleLargeTc method is called, the svcName is %s\n", request.Namespace, request.Clustername, svcName)
-	return nil, nil
+	return &res, fmt.Errorf("invaild request")
 }
 
 //UpdateRule immediately updates instance's hashrates, only deal with active rules which need increase.
