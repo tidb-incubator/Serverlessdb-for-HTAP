@@ -2,6 +2,7 @@ package scaleservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	tidbv1 "github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/label"
@@ -13,11 +14,15 @@ import (
 	"google.golang.org/grpc/peer"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -28,6 +33,31 @@ const AllInstanceLabelKey string = "bcrds.cmss.com/instance"
 type Service struct{}
 
 func (s *Service) ScaleTempCluster(ctx context.Context, request *scalepb.TempClusterRequest) (*scalepb.TempClusterReply, error) {
+	var svcName string
+	var res scalepb.TempClusterReply
+	if request.Start == true {
+		klog.Infof("[%s/%s]come to create large tc--------hashrate %s\n", request.Namespace, request.Clustername)
+		svcName, err := StartLargeTc(request.Clustername, request.Namespace)
+		res.StartAddr = svcName
+		if err != nil {
+			klog.Errorf("[%s/%s]StartLargeTc failed: %s", request.Namespace, request.Clustername, err)
+			res.Success = false
+			return &res, err
+		}
+		res.Success = true
+		return &res, err
+	} else if request.StopAddr != "" {
+		klog.Infof("[%s/%s]come to delete large tc--------hashrate %s\n", request.Namespace, request.Clustername)
+		err := StopLargeTc(request.Clustername, request.Namespace, request.StopAddr)
+		if err != nil {
+			klog.Errorf("[%s/%s]StopLargeTc failed: %s", request.Namespace, request.Clustername, err)
+			res.Success = false
+			return &res, err
+		}
+		res.Success = true
+		return &res, err
+	}
+	klog.Infof("[%s/%s]HandleLargeTc method is called, the svcName is %s\n", request.Namespace, request.Clustername, svcName)
 	return nil, nil
 }
 
@@ -319,4 +349,297 @@ func updateTc(tc *tidbv1.TidbCluster, replica int32, cpu resource.Quantity) erro
 		return updateErr
 	})
 	return err
+}
+
+func CreateLargeTc(clusName, ns, largeTCName string) (*tidbv1.TidbCluster, error) {
+	tc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(clusName)
+	if err != nil {
+		klog.Errorf("[%s/%s] get TidbClusters failed", ns, clusName)
+		return nil, fmt.Errorf("get tc fail", err)
+	}
+	var newtc = &tidbv1.TidbCluster{}
+
+	newtc.Name = largeTCName
+	newtc.Namespace = ns
+	if newtc.Labels == nil {
+		newtc.Labels = make(map[string]string)
+	}
+	newtc.Labels = util.New().Instance(largeTCName)
+	newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
+	newtc.Spec.TiDB.Replicas = 1
+	var limit = make(corev1.ResourceList)
+	limit[corev1.ResourceMemory] = resource.MustParse("2Gi")
+	limit[corev1.ResourceCPU] = resource.MustParse("1")
+
+	newtc.Spec.TiDB.Limits = limit
+	newtc.Spec.Version = tc.Spec.Version
+	newtc.Spec.TiDB.Service = nil
+	newtc.Spec.TiDB.StorageClassName = tc.Spec.TiDB.StorageClassName
+	newtc.Spec.SchedulerName = tc.Spec.SchedulerName
+	newtc.Spec.TiDB.Requests = limit.DeepCopy()
+	newtc.Spec.Annotations = map[string]string{
+		util.InstanceAnnotationKey: largeTCName,
+	}
+	newtc.Spec.Cluster = &tidbv1.TidbClusterRef{
+		Name:      clusName,
+		Namespace: tc.Namespace,
+	}
+	// set owner references
+	newtc.OwnerReferences = tc.OwnerReferences
+	_, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Create(newtc)
+	if err != nil {
+		klog.Infof("[%s/%s]-----Create tc fail------------ %v\n", ns, largeTCName, err)
+		if errors.IsAlreadyExists(err) {
+			newtc, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Get(largeTCName, metav1.GetOptions{})
+			if err != nil {
+				klog.Errorf("[%s/%s] get TidbClusters failed", tc.Namespace, clusName)
+				return nil, err
+			}
+		} else {
+			klog.Errorf("[%s/%s] create TidbClusters failed", tc.Namespace, clusName)
+			return nil, err
+		}
+	}
+	klog.Infof("[%s/%s]-------------------finish create------------\n", ns, largeTCName)
+
+	return newtc, nil
+}
+
+func PodStatusHander(ns, largeTCName, index string) bool {
+	var timeCount int
+	podStatus := false
+	for {
+		timeCount++
+		time.Sleep(600 * time.Millisecond)
+		if timeCount > 200 {
+			klog.Infof("[%s/%s] start more than 120s", ns, largeTCName)
+			break
+		}
+		var currtc *tidbv1.TidbCluster
+		var err error
+		if currtc, err = sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(largeTCName); err != nil {
+			klog.Infof("[%s/%s] PodStatusCheckRollback  PingCapLister failed %v", ns, largeTCName, err)
+			continue
+		}
+		var podlist []*corev1.Pod
+		if podlist, err = utils.GetK8sPodArray(currtc, tidbv1.TiDBMemberType); err != nil {
+			klog.Infof("[%s/%s] GetK8sPodArray failed %v", ns, largeTCName, err)
+			continue
+		}
+		for i, pod := range podlist {
+			if pod.Name == largeTCName+"-tidb-"+index {
+				if utils.IsPodReady(pod) == true {
+					klog.Infof("[%s/%s]-------pod is ready------------%s\n", ns, largeTCName, pod.Name)
+					err := utils.DnsCheck(podlist[i])
+					if err != nil {
+						klog.Errorf("[%s/%s] PodStatusHander DnsCheck check failed %v", podlist[i].Namespace, podlist[i].Name, err)
+					} else {
+						klog.Infof("[%s/%s] PodStatusHander DnsCheck check success", podlist[i].Namespace, podlist[i].Name)
+						podStatus = true
+					}
+				}
+			}
+		}
+		if podStatus == true {
+			break
+		}
+	}
+	return podStatus
+}
+
+func GetAnnoIndex(tc *tidbv1.TidbCluster) (string, map[string]string, error) {
+	anno := tc.GetAnnotations()
+	var index string
+	if anno == nil {
+		anno = map[string]string{}
+	}
+	value, ok := anno[label.AnnTiDBDeleteSlots]
+	if ok {
+		klog.Infof("[%s/%s] index is--------ok to find--------", tc.Namespace, tc.Name)
+		slice := make([]int, 0)
+		if value != "" {
+			err := json.Unmarshal([]byte(value), &slice)
+			if err != nil {
+				return index, anno, fmt.Errorf("[%s/%s] unmarshal value %s failed: %s", tc.Namespace, tc.Name, value, err)
+			}
+			index = strconv.Itoa(slice[0])
+			if 1 >= len(slice) {
+				delete(anno, label.AnnTiDBDeleteSlots)
+			} else {
+				slice = slice[1:]
+				s, err := json.Marshal(slice)
+				if err != nil {
+					return index, anno, fmt.Errorf("[%s/%s] marshal slice %v failed when acutal is less than target: %s", tc.Namespace, tc.Name, slice, err)
+				}
+				anno[label.AnnTiDBDeleteSlots] = string(s)
+			}
+		}
+	}
+	if index == "" {
+		klog.Infof("[%s/%s] index is null--------", tc.Namespace, tc.Name)
+		var podlist []*corev1.Pod
+		var err error
+		if podlist, err = utils.GetK8sPodArray(tc, tidbv1.TiDBMemberType); err != nil {
+			klog.Infof("[%s/%s] GetK8sPodArray failed %v", tc.Namespace, tc.Name, err)
+			return index, anno, err
+		}
+		index = strconv.Itoa(len(podlist))
+	}
+
+	return index, anno, nil
+}
+
+func NormalOrNot(clusName, ns string) bool {
+	var timeCount int
+	var tcStatus bool
+	for {
+		timeCount++
+		time.Sleep(600 * time.Millisecond)
+		if timeCount > 100 {
+			klog.Infof("[%s/%s] check status more than 60s", ns, clusName)
+			tcStatus = false
+			break
+		}
+		largeTcNow, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(clusName)
+		if err != nil {
+			tcStatus = false
+			continue
+		}
+		if largeTcNow.Status.TiDB.Phase == tidbv1.NormalPhase {
+			tcStatus = true
+			break
+		}
+		tcStatus = false
+	}
+	return tcStatus
+}
+
+func deletePod(largeTc *tidbv1.TidbCluster, index string) error {
+	if index == "" {
+		return fmt.Errorf("the index is null!!!!")
+	}
+	slice := make([]int, 0)
+	anno := largeTc.GetAnnotations()
+	if anno == nil {
+		anno = map[string]string{}
+	} else {
+		if v, ok := anno[label.AnnTiDBDeleteSlots]; ok {
+			if v != "" {
+				err := json.Unmarshal([]byte(v), &slice)
+				if err != nil {
+					return fmt.Errorf("[%s/%s] deletePod unmarshal value %s failed: %s", largeTc.Namespace, largeTc.Name, v, err)
+				}
+			}
+		}
+	}
+	indexNum, _ := strconv.Atoi(index)
+	slice = append(slice, indexNum)
+	sort.Ints(slice)
+	s, err := json.Marshal(slice)
+	if err != nil {
+		return fmt.Errorf("[%s/%s] deletePod marshal slice %v failed when StopLargeTc: %s", largeTc.Namespace, largeTc.Name, slice, err)
+	}
+	anno[label.AnnTiDBDeleteSlots] = string(s)
+	largeTc.Annotations = anno
+
+	largeTc.Spec.TiDB.Replicas = largeTc.Spec.TiDB.Replicas - 1
+	err = utils.UpdateTC(largeTc, tidbv1.TiDBMemberType, false)
+	if err != nil {
+		klog.Errorf("[%s/%s] deletePod Update large TidbClusters failed", largeTc.Namespace, largeTc.Name)
+		return err
+	}
+	return nil
+}
+
+func StartLargeTc(clusName, ns string) (string, error) {
+	largeTCName := clusName + "-large"
+	var svcName string
+	var index string
+	largeTc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(largeTCName)
+	if err != nil && !errors.IsNotFound(err) {
+		klog.Errorf("[%s/%s] get TidbClusters failed", ns, clusName)
+		return svcName, err
+	}
+	if errors.IsNotFound(err) {
+		klog.Infof("[%s/%s]------------come to create newtc------------\n", ns, largeTCName)
+		index = "0"
+		largeTc, err := CreateLargeTc(clusName, ns, largeTCName)
+		if err != nil {
+			klog.Errorf("[%s/%s] Create large TidbClusters failed", ns, clusName)
+			return svcName, err
+		}
+		oldTc := largeTc.DeepCopy()
+		oldTc.Spec.TiDB.Replicas = 0
+		podStatus := PodStatusHander(ns, largeTCName, "0")
+		if podStatus == true {
+			svcName = largeTCName + "-tidb-" + index + "." + largeTCName + "-tidb-" + "peer" + "." + ns
+			return svcName, nil
+		} else {
+			err = deletePod(largeTc, index)
+			if err != nil {
+				klog.Errorf("[%s/%s] deletePod failed when pod not ready", ns, clusName)
+				return svcName, err
+			}
+			return svcName, fmt.Errorf("the largetc pod not ready")
+		}
+
+	} else {
+		klog.Infof("[%s/%s]-----already have tc-------\n", ns, largeTCName)
+		tcStatus := NormalOrNot(largeTCName, ns)
+		if tcStatus == false {
+			return svcName, fmt.Errorf("the large TC status is not normal")
+		}
+		index, anno, err := GetAnnoIndex(largeTc)
+		if err != nil || index == "" {
+			klog.Errorf("[%s/%s] GetAnnoIndex failed: %s. the index is %s", ns, clusName, err, index)
+			return svcName, err
+		}
+		largeTc.Annotations = anno
+		largeTc.Spec.TiDB.Replicas = largeTc.Spec.TiDB.Replicas + 1
+		err = utils.UpdateTC(largeTc, tidbv1.TiDBMemberType, false)
+		if err != nil {
+			klog.Errorf("[%s/%s] Update large TidbClusters failed", ns, clusName)
+			return svcName, err
+		}
+		podStatus := PodStatusHander(ns, largeTCName, index)
+		if podStatus == true {
+			svcName := largeTCName + "-tidb-" + index + "." + largeTCName + "-tidb-" + "peer" + "." + ns
+			return svcName, nil
+		} else {
+			klog.Infof("[%s/%s]pod-----status not ok-------%s---%s\n", ns, largeTCName, svcName, index)
+			err = deletePod(largeTc, index)
+			if err != nil {
+				klog.Errorf("[%s/%s] deletePod failed when pod not ready", ns, clusName)
+				return svcName, err
+			}
+			klog.Infof("[%s/%s]-----finish delete-------%s----%s\n", ns, largeTCName, svcName, index)
+			return svcName, fmt.Errorf("the largetc pod not ready")
+		}
+	}
+
+}
+
+func StopLargeTc(clusName, ns, addr string) error {
+	largeTCName := clusName + "-large"
+	largeTc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(largeTCName)
+	if err != nil {
+		klog.Errorf("[%s/%s] get TidbClusters failed", ns, clusName)
+		return err
+	}
+
+	tcStatus := NormalOrNot(largeTCName, ns)
+	if tcStatus == false {
+		return fmt.Errorf("the large TC status is not normal")
+	}
+
+	index := strings.Split(addr, ".")[0]
+	index = strings.Split(index, "-")[2]
+	err = deletePod(largeTc, index)
+	if err != nil {
+		klog.Errorf("[%s/%s] deletePod failed when pod not ready", ns, clusName)
+		return err
+	}
+
+	return nil
+
 }

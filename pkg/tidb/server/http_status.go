@@ -109,6 +109,11 @@ func (s *Server) listenStatusHTTPServer() error {
 func (s *Server) startHTTPServer() {
 	router := mux.NewRouter()
 
+	// proxy api
+	router.HandleFunc("/api/v1/clusters/tidbs", s.AddTidb).Name("addTidbs")
+	router.HandleFunc("/api/v1/clusters/tidbs", s.AddTidb).Name("deleteTidbs")
+
+
 	router.HandleFunc("/status", s.handleStatus).Name("Status")
 	// HTTP path for prometheus.
 	router.Handle("/metrics", promhttp.Handler()).Name("Metrics")
@@ -426,4 +431,47 @@ func (s *Server) handleStatus(w http.ResponseWriter, req *http.Request) {
 	}
 	_, err = w.Write(js)
 	terror.Log(errors.Trace(err))
+}
+
+func (s *Server) AddTidb(w http.ResponseWriter, req *http.Request) {
+	args := struct {
+		Cluster string `json:"cluster"`
+		NameSpace string `json:"ns"`
+		TidbType  string `json:"tidbtype"`
+	}{}
+	err := json.NewDecoder(req.Body).Decode(&args)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logutil.BgLogger().Error("encode Request failed", zap.Error(err))
+		return
+	}
+	err = s.FindNewTidb(args.Cluster, args.NameSpace, args.TidbType)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logutil.BgLogger().Error("findNewTidb Request failed", zap.Error(err))
+		return
+	}
+	return
+}
+
+func (s *Server) DeleteOneTidb(w http.ResponseWriter, req *http.Request) {
+	args := struct {
+		Cluster string `json:"cluster"`
+		Addr string `json:"addr"`
+		TidbType  string `json:"tidbtype"`
+	}{}
+	err := json.NewDecoder(req.Body).Decode(&args)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logutil.BgLogger().Error("encode Request failed", zap.Error(err))
+		return
+	}
+	err = s.DeleteTidb(args.Cluster, args.Addr, args.TidbType)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logutil.BgLogger().Error("DeleteTidb Request failed", zap.Error(err))
+		return
+	}
+	//s.proxy.Resetserverless()
+	return
 }

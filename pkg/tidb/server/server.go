@@ -33,20 +33,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/pingcap/tidb/proxy/backend"
-	"math/rand"
-	"net"
-	"net/http"
-
-	// For pprof
-	_ "net/http/pprof"
-	"os"
-	"os/user"
-	"sync"
-	"sync/atomic"
-	"time"
-	"unsafe"
-
 	"github.com/blacktear23/go-proxyprotocol"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/mysql"
@@ -57,7 +43,10 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/plugin"
+	"github.com/pingcap/tidb/proxy/backend"
 	proxyconfig "github.com/pingcap/tidb/proxy/config"
+	"github.com/pingcap/tidb/proxy/core/golog"
+	proxyutil "github.com/pingcap/tidb/proxy/util"
 	"github.com/pingcap/tidb/session/txninfo"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util"
@@ -68,6 +57,19 @@ import (
 	"github.com/pingcap/tidb/util/timeutil"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	v1 "k8s.io/api/core/v1"
+	"math/rand"
+	"net"
+	"net/http"
+	// For pprof
+	_ "net/http/pprof"
+	"os"
+	"os/exec"
+	"os/user"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unsafe"
 )
 
 var (
@@ -314,18 +316,116 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 	//for test
 	cluster.BackendPools = make(map[string]*backend.Pool)
 	cluster.BackendPools[backend.TiDBForTP] = &backend.Pool{}
-
+	cluster.BackendPools[backend.TiDBForAP] = &backend.Pool{}
 	cluster.DownAfterNoAlive = time.Duration(cfg.DownAfterNoAlive) * time.Second
-	//fmt.Printf("tidb is %s \n",cfg.Tidbs)
-	err = cluster.ParseTidbs(cfg.Tidbs)
-	if err != nil {
-		return nil, err
+
+	var norms = []string{backend.TiDBForTP, backend.TiDBForAP}
+	for _, v := range norms {
+		var Podlist *v1.PodList
+		var Pod *v1.Pod
+		ReadyOrNot := func() (bool, error) {
+			golog.Info("Server", "ReadyOrNot", "checking tidb ready or not ", 0, "tidbtype is ", v)
+			Podlist, err = GetPod(cfg.ClusterName, cfg.NameSpace, v)
+			if err != nil {
+				return false, err
+			}
+			if v == backend.TiDBForTP {
+				var ProxyPodlist *v1.PodList
+				ProxyPodlist, err = GetProxyPod(cfg.ClusterName, cfg.NameSpace)
+				if err != nil || len(ProxyPodlist.Items) == 0 {
+					return false, err
+				}
+				for _, v := range ProxyPodlist.Items {
+					Podlist.Items = append(Podlist.Items, v)
+				}
+			}
+			//if len(Podlist.Items) == 0 {
+			//	//CallUpCluster()
+			//	var success bool
+			//	success,err = ScaleSldb(cfg.Namespace,cfg.Name,1, false)
+			//	if success != true {
+			//		return false,err
+			//	}
+			//}
+			readyFlag := false
+			for _, v := range Podlist.Items {
+				if IsPodReady(&v) {
+					readyFlag = true
+					Pod = v.DeepCopy()
+					break
+				}
+			}
+			if readyFlag == false {
+				return false, nil
+			} else {
+				return true, nil
+			}
+		}
+		if err := proxyutil.Retry(5*time.Second, 60, ReadyOrNot); err != nil {
+			golog.Warn("Server", "ReadyOrNot", "the tidbs are not ready", 0)
+			return nil, err
+		}
+		if err = dnsCheck(Pod, &cluster.Cfg); err != nil {
+			return nil, err
+		}
+		tidbs := MakeTidbs(Podlist, cfg.NameSpace)
+		golog.Info("server", "NewServer", "Server running", 0, "tidbtype is ", v,
+			"Podlist string is ----------", tidbs)
+
+		err = cluster.BackendPools[v].ParseTidbs(tidbs, cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	cluster.Online = true
 	go cluster.CheckCluster()
 
 	return cluster, nil
+}
+
+func dnsCheck(pod *v1.Pod, cfg *proxyconfig.ClusterConfig) error {
+	DNSTimeout := int64(60)
+	tcName := pod.Labels[InstanceLabelKey]
+	name := pod.Name + "." + tcName + "-tidb-peer" + "." + pod.Namespace
+	dnscheck := fmt.Sprintf(`
+      TIMEOUT_READY=%d
+      while ( ! nslookup %s || ! mysql -h%s -u%s  -p%s -P4000 --connect-timeout=2 -e "select 1;" )
+      do
+         # If TIMEOUT_READY is 0 we should never time out and exit
+         TIMEOUT_READY=$(( TIMEOUT_READY-1 ))
+                     if [ $TIMEOUT_READY -eq 0 ];
+           then
+               echo "Timed out waiting for DNS entry"
+               exit 1
+           fi
+         sleep 1
+      done`, DNSTimeout, name, name, cfg.User, cfg.Password)
+	cmd := exec.Command("/bin/sh", "-c", dnscheck)
+	err := cmd.Start()
+	if err != nil {
+		return err
+	}
+	golog.Debug("Server", "dnsCheck", "checking tidb headless ", 0)
+	err = cmd.Wait()
+	return err
+}
+
+func MakeTidbs(Podlist *v1.PodList, ns string) string {
+	result := ""
+	for _, v := range Podlist.Items {
+		podname := v.Name
+		cpuNum := ""
+		for _, v1 := range v.Spec.Containers {
+			if v1.Name == "tidb" {
+				cpuNum = v1.Resources.Limits.Cpu().String()
+			}
+		}
+		cpuNum = getFloatCpu(cpuNum)
+		tcName := v.Labels[InstanceLabelKey]
+		result = result + podname + "." + tcName + "-tidb-peer" + "." + ns + ":" + TidbPort + "@" + cpuNum + ","
+	}
+	return result
 }
 
 func setSSLVariable(ca, key, cert string) {

@@ -36,19 +36,24 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"fmt"
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/config"
+	"github.com/pingcap/tidb/proxy/scalepb"
+	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/chunk"
+	"github.com/pingcap/tidb/util/hack"
+	"google.golang.org/grpc"
 	"io"
 	"math"
 	"net/http"
 	"strconv"
 	"time"
-
-	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/tidb/config"
-	"github.com/pingcap/tidb/types"
-	"github.com/pingcap/tidb/util/chunk"
-	"github.com/pingcap/tidb/util/hack"
 )
+
+const ScaleAddr = "he3db-scaler-operator.he3db-admin.svc:8028"
 
 func parseNullTermString(b []byte) (str []byte, remain []byte) {
 	off := bytes.IndexByte(b, 0)
@@ -420,4 +425,40 @@ func (h CorsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Access-Control-Allow-Methods", "GET")
 	}
 	h.handler.ServeHTTP(w, req)
+}
+
+func ScaleSldb(ns, clus string, hashrate float32, needtimeout bool) (bool, error) {
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if needtimeout {
+		ctx, cancel = context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+	} else {
+		ctx = context.Background()
+	}
+
+	fmt.Println("start--------------------------")
+	conn, err := grpc.DialContext(ctx, ScaleAddr, grpc.WithInsecure())
+	//conn, err := grpc.Dial(ScaleAddr, grpc.WithInsecure(), grpc.WithTimeout(10 * time.Second))
+	if err != nil {
+		return false, err
+	}
+	// 函数结束时关闭连接
+	defer conn.Close()
+
+	// 创建Waiter服务的客户端
+	t := scalepb.NewScaleClient(conn)
+
+	// 调用gRPC接口
+	tr, err := t.ScaleCluster(ctx, &scalepb.ScaleRequest{
+		Clustername: clus,
+		Namespace:   ns,
+		Hashrate:    hashrate,
+	})
+	if err != nil {
+		fmt.Println("error ----------------------")
+		return false, err
+	}
+	fmt.Println("end----------------------")
+	return tr.Success, nil
 }

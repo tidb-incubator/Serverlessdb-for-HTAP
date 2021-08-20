@@ -8,6 +8,7 @@ require (
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.4.1
+	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/kirinlabs/HttpRequest v1.1.1
 	github.com/kubernetes-csi/csi-lib-utils v0.7.0
 	github.com/kubernetes-csi/external-snapshotter/v2 v2.1.1
@@ -17,12 +18,17 @@ require (
 	github.com/pborman/uuid v1.2.0
 	github.com/pingcap/advanced-statefulset/client v1.16.0
 	github.com/pingcap/errors v0.11.4
+	github.com/pingcap/fn v0.0.0-20200306044125-d5540d389059 // indirect
 	github.com/pingcap/kvproto v0.0.0-20200927054727-1290113160f0
+	github.com/pingcap/parser v3.1.2+incompatible // indirect
 	github.com/pingcap/tidb-operator v1.2.0
 	github.com/prometheus/client_golang v1.0.0
 	github.com/robfig/cron v1.1.0
+	github.com/shurcooL/httpfs v0.0.0-20190707220628-8d4bc4ba7749 // indirect
+	github.com/shurcooL/vfsgen v0.0.0-20200824052919-0d455de96546 // indirect
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.1.3
+	github.com/tiancaiamao/appdash v0.0.0-20181126055449-889f96f722a2 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 	golang.org/x/sys v0.0.0-20210415045647-66c3f260301c // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
@@ -33,7 +39,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.17.1
 	k8s.io/apiextensions-apiserver v0.20.4 // indirect
-	k8s.io/apimachinery v0.20.4
+	k8s.io/apimachinery v0.22.0
 	k8s.io/client-go v0.20.4
 	k8s.io/cloud-provider v0.20.4 // indirect
 	k8s.io/component-base v0.20.4
@@ -43,6 +49,7 @@ require (
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
 	modernc.org/mathutil v1.0.0
 	sigs.k8s.io/controller-runtime v0.4.0
+	sourcegraph.com/sourcegraph/appdash-data v0.0.0-20151005221446-73f23eafcf67 // indirect
 )
 
 // Pinned to kubernetes-1.16.2
