@@ -35,6 +35,10 @@ type NewTidb struct {
 	TidbType string `json:"tidbtype"`
 }
 
+func (s *Server) GetAllClusters() *backend.Cluster {
+	return s.cluster
+}
+
 func (s *Server) DeleteTidb(cluster, addr, tidbType string) error {
 	addr = strings.Split(addr, backend.WeightSplit)[0]
 	if err := s.cluster.DeleteTidb(addr, tidbType); err != nil {
