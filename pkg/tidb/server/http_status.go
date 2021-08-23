@@ -110,9 +110,9 @@ func (s *Server) startHTTPServer() {
 	router := mux.NewRouter()
 
 	// proxy api
-	router.HandleFunc("/api/v1/clusters/tidbs", s.AddTidb).Name("addTidbs")
-	router.HandleFunc("/api/v1/clusters/tidbs", s.AddTidb).Name("deleteTidbs")
-
+	router.HandleFunc("/api/v1/clusters/sldb/Tidbs", s.AddTidb).Name("addTidbs")
+	router.HandleFunc("/api/v1/clusters/tidbs", s.DeleteOneTidb).Name("deleteTidbs")
+	router.HandleFunc("/api/v1/clusters/status", s.GetClustersStatus).Name("getClustersStatus")
 
 	router.HandleFunc("/status", s.handleStatus).Name("Status")
 	// HTTP path for prometheus.
@@ -435,7 +435,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, req *http.Request) {
 
 func (s *Server) AddTidb(w http.ResponseWriter, req *http.Request) {
 	args := struct {
-		Cluster string `json:"cluster"`
+		Cluster   string `json:"cluster"`
 		NameSpace string `json:"ns"`
 		TidbType  string `json:"tidbtype"`
 	}{}
@@ -456,9 +456,9 @@ func (s *Server) AddTidb(w http.ResponseWriter, req *http.Request) {
 
 func (s *Server) DeleteOneTidb(w http.ResponseWriter, req *http.Request) {
 	args := struct {
-		Cluster string `json:"cluster"`
-		Addr string `json:"addr"`
-		TidbType  string `json:"tidbtype"`
+		Cluster  string `json:"cluster"`
+		Addr     string `json:"addr"`
+		TidbType string `json:"tidbtype"`
 	}{}
 	err := json.NewDecoder(req.Body).Decode(&args)
 	if err != nil {
@@ -474,4 +474,61 @@ func (s *Server) DeleteOneTidb(w http.ResponseWriter, req *http.Request) {
 	}
 	//s.proxy.Resetserverless()
 	return
+}
+
+type DBStatus struct {
+	Cluster         string `json:"cluster"`
+	Address         string `json:"address"`
+	Type            string `json:"type"`
+	Status          string `json:"status"`
+	LastPing        string `json:"laste_ping"`
+	MaxConn         int    `json:"max_conn"`
+	IdleConn        int    `json:"idle_conn"`
+	CacheConn       int    `json:"cache_conn"`
+	PushConnCount   int64  `json:"push_conn_count"`
+	PopConnCount    int64  `json:"pop_conn_count"`
+	UsingConnsCount int64  `json:"using_conn_count"`
+}
+
+func (s *Server) GetClustersStatus(w http.ResponseWriter, req *http.Request) {
+	args := struct {
+		TidbType string `json:"tidbtype"`
+	}{}
+	err := json.NewDecoder(req.Body).Decode(&args)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logutil.BgLogger().Error("encode Request failed", zap.Error(err))
+		return
+	}
+	var TidbStatus DBStatus
+	dbStatus := make([]DBStatus, 0, 1)
+	cluster := s.GetAllClusters()
+
+	//get Tidbs status
+	for _, Tidb := range cluster.BackendPools[args.TidbType].Tidbs {
+		//get Tidb counter
+		idleConns, cacheConns, pushConnCount, popConnCount, usingConnCount := Tidb.ConnCount()
+
+		TidbStatus.Cluster = cluster.Cfg.ClusterName
+		TidbStatus.Address = Tidb.Addr()
+		TidbStatus.Type = "Tidb"
+		TidbStatus.Status = Tidb.State()
+		TidbStatus.LastPing = fmt.Sprintf("%v", time.Unix(Tidb.GetLastPing(), 0))
+		//TidbStatus.MaxConn = cluster.Cfg.MaxConnNum
+		TidbStatus.IdleConn = idleConns
+		TidbStatus.CacheConn = cacheConns
+		TidbStatus.PushConnCount = pushConnCount
+		TidbStatus.PopConnCount = popConnCount
+		TidbStatus.UsingConnsCount = usingConnCount
+
+		dbStatus = append(dbStatus, TidbStatus)
+	}
+
+	js, err := json.Marshal(dbStatus)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logutil.BgLogger().Error("encode json failed", zap.Error(err))
+		return
+	}
+	_, err = w.Write(js)
 }
