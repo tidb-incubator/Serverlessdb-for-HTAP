@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	"reflect"
-
 	//"k8s.io/kubernetes/pkg/api/v1/resource"
 	tcv1 "github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	sldbcluster "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/sldbcluster"
@@ -59,6 +58,7 @@ const (
 	HashratePerTidb     = 1
 	ScalerOut           = 1
 	ScalerIn            = 2
+	ZeroHashrate        = 0.0
 	MinHashraterPerTidb = 0.5
 	NormalHashrate1     = 1.0
 	NormalHashrate2     = 2.0
@@ -79,8 +79,14 @@ const (
 type ScalerData struct {
 	ScalerNeedCore float64
 	ScalerCurtime  int64
+	FirstExpandTime int64
 	ScalerFlag     int
 }
+const (
+	TP string = "tp"
+	AP string = "ap"
+	BIGAP string = "large"
+)
 
 var AllScalerOutData = make(map[string]*ScalerData)
 var GMapMutex sync.Mutex
@@ -99,8 +105,17 @@ func UpdateLastData(name string, namesp string, data *ScalerData, ty int) {
 	}
 	ptr.ScalerCurtime = data.ScalerCurtime
 	if ty == ScalerOut {
-		if ptr.ScalerNeedCore < data.ScalerNeedCore {
-			ptr.ScalerNeedCore = data.ScalerNeedCore
+		//60s find load fall to  low level，ScalerIn
+		if ptr.FirstExpandTime != 0 &&  ptr.ScalerCurtime - ptr.FirstExpandTime > 60 {
+			if data.ScalerNeedCore < ptr.ScalerNeedCore {
+				ptr.ScalerNeedCore = data.ScalerNeedCore
+				ptr.ScalerFlag = ScalerIn
+			}
+			ptr.FirstExpandTime = 0
+		} else {
+			if ptr.ScalerNeedCore < data.ScalerNeedCore {
+				ptr.ScalerNeedCore = data.ScalerNeedCore
+			}
 		}
 	} else {
 		ptr.ScalerFlag = ty
@@ -109,8 +124,8 @@ func UpdateLastData(name string, namesp string, data *ScalerData, ty int) {
 	GMapMutex.Unlock()
 }
 
-func CleanHashrate(tc *tcv1.TidbCluster) {
-	key := tc.Name + "-" + tc.Namespace
+func CleanHashrate(tc *tcv1.TidbCluster,scaletype string) {
+	key := tc.Name + "-" + scaletype + "-" + tc.Namespace
 	GMapMutex.Lock()
 	if v, ok := AllScalerOutData[key]; ok {
 		v.ScalerCurtime = time.Now().Unix()
@@ -120,8 +135,8 @@ func CleanHashrate(tc *tcv1.TidbCluster) {
 	GMapMutex.Unlock()
 }
 
-func OneHashrate(tc *tcv1.TidbCluster) {
-	key := tc.Name + "-" + tc.Namespace
+func OneHashrate(tc *tcv1.TidbCluster,scaletype string) {
+	key := tc.Name + "-" + scaletype +"-" + tc.Namespace
 	GMapMutex.Lock()
 	if v, ok := AllScalerOutData[key]; ok {
 		v.ScalerNeedCore = 1.0
@@ -157,6 +172,12 @@ func GetLastData(name string, namesp string) (ScalerData, error) {
 		return tmp, nil
 	}
 }
+func CleanScalerMap(name string, namesp string) {
+	key := name + "-" + namesp
+	GMapMutex.Lock()
+	delete(AllScalerOutData, key)
+	GMapMutex.Unlock()
+}
 
 
 type DBStatus struct {
@@ -187,10 +208,19 @@ func GetSldb(clus, ns string) (*v1alpha1.ServerlessDB, error) {
 	return sldb, err
 }
 
+//transfer hashrate to tidb replicas
+func TransHashrateToReplica(hashrate int) int {
+	return int(math.Ceil(float64(hashrate) / HashratePerTidb))
+}
+
 //calcute max hashrate based on metric.
 func CalcMaxPerfResource(metrics v1alpha1.Metric) int {
+	if metrics.HashRate != "" {
 		maxHashrate, _ := strconv.Atoi(metrics.HashRate)
 		return maxHashrate
+	} else {
+		return 8
+	}
 }
 
 //caculated resource cannot exceed cluster limit.
@@ -248,7 +278,8 @@ func UpdateAnno(tc *tcv1.TidbCluster, component string, actualReplica, targetRep
 	}
 
 	if actualReplica > targetReplica {
-		diff := actualReplica - targetReplica
+		//to do: get tidb pod's sequence of scale in.
+		diff := int(actualReplica - targetReplica)
 		deleteslots, err := FilterNeedReduceTidbReplicasIndex(tc, diff, component)
 		if err != nil {
 			return anno, fmt.Errorf("[%s/%s] filter deleted slots %v failed which need reduce: %s", tc.Namespace, tc.Name, deleteslots, err)
@@ -441,8 +472,8 @@ func FilterNeedReduceTidbReplicasIndex(tc *tcv1.TidbCluster, reduceReplica int, 
 
 
 func GetK8sAllPodArray(name string, namesp string, sldbType tcv1.MemberType) ([]*corev1.Pod, error) {
-	labelkv := fmt.Sprintf(`%s=%s,%s=%s,%s=%s`, "app.kubernetes.io/component", string(sldbType),
-		"bcrds.cmss.com/instance", name, "app.kubernetes.io/managed-by", "tidb-operator")
+	labelkv:= fmt.Sprintf(`%s=%s,%s=%s,%s=%s`, "app.kubernetes.io/component",string(sldbType),
+		"bcrds.cmss.com/instance",name,"app.kubernetes.io/managed-by","tidb-operator")
 	listopt := metav1.ListOptions{
 		LabelSelector: labelkv,
 	}
@@ -453,6 +484,11 @@ func GetK8sAllPodArray(name string, namesp string, sldbType tcv1.MemberType) ([]
 	var podarr []*corev1.Pod
 	for i, v := range podlist.Items {
 		if v.DeletionTimestamp == nil {
+			if v,ok := v.Labels["predelete"];ok {
+				if v == "true" {
+					continue
+				}
+			}
 			podarr = append(podarr, &podlist.Items[i])
 		}
 	}
@@ -472,6 +508,11 @@ func GetK8sPodArray(tc *tcv1.TidbCluster, sldbType tcv1.MemberType) ([]*corev1.P
 	var podarr []*corev1.Pod
 	for i, v := range podlist.Items {
 		if v.DeletionTimestamp == nil {
+			if v,ok := v.Labels["predelete"];ok {
+				if v == "true" {
+					continue
+				}
+			}
 			podarr = append(podarr, &podlist.Items[i])
 		}
 	}
@@ -955,7 +996,7 @@ func GetTcArray(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster, error) {
 func GetHashRate(tc *tcv1.TidbCluster) (SigleTc, error) {
 	var sigle SigleTc
 	sigle.Tc = *tc
-	cpustr := tc.Spec.TiDB.Limits.Cpu().String()
+	cpustr := tc.Spec.TiDB.Requests.Cpu().String()
 	cpuarr := strings.Split(cpustr, "m")
 	if len(cpuarr) == 2 {
 		v, err := strconv.Atoi(cpuarr[0])
@@ -987,67 +1028,67 @@ func GetHashRate(tc *tcv1.TidbCluster) (SigleTc, error) {
 	return sigle, nil
 }
 
-func createNoExistAllTc(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster, tcArr *TClus, tc *tcv1.TidbCluster, max int) error {
-	for i := 0; i < max; i++ {
-		var newtc = &tcv1.TidbCluster{}
-		var name string
-		if i == 0 {
-			name = tc.Name
-		} else {
-			name = tc.Name + "-new" + strconv.Itoa(i)
+func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbCluster,name string,tc *tcv1.TidbCluster,limit corev1.ResourceList) error {
+	if v, ok := existClusterMap[name]; !ok {
+		newtc.Name = name
+		newtc.Namespace = tc.Namespace
+		if newtc.Labels == nil {
+			newtc.Labels = make(map[string]string)
 		}
-		if v, ok := existClusterMap[name]; !ok {
-			newtc.Name = name
-			newtc.Namespace = tc.Namespace
-			if newtc.Labels == nil {
-				newtc.Labels = make(map[string]string)
-			}
-			newtc.Labels = util.New().Instance(name).BcRdsInstance(tc.Name)
-			newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
-			newtc.Spec.TiDB.Replicas = 0
-			var limit = make(corev1.ResourceList)
-			limit[corev1.ResourceMemory] = tc.Spec.TiDB.Limits[corev1.ResourceMemory]
-			limit[corev1.ResourceCPU] = tc.Spec.TiDB.Limits[corev1.ResourceCPU]
-			cpuLimit := limit[corev1.ResourceCPU]
-			memLimit := limit[corev1.ResourceMemory]
-			for j := 0; j < i; j++ {
-				cpuLimit.Add(cpuLimit)
-				memLimit.Add(memLimit)
-			}
-			limit[corev1.ResourceCPU] = cpuLimit
-			limit[corev1.ResourceMemory] = memLimit
-			newtc.Spec.TiDB.Limits = limit
-			newtc.Spec.Version = tc.Spec.Version
-			newtc.Spec.TiDB.Service = nil
-			newtc.Spec.TiDB.StorageClassName = tc.Spec.TiDB.StorageClassName
-			newtc.Spec.SchedulerName = tc.Spec.SchedulerName
-			newtc.Spec.TiDB.Requests = limit.DeepCopy()
-			newtc.Spec.Annotations = map[string]string{
-				util.InstanceAnnotationKey: tc.Name,
-			}
-			newtc.Spec.Cluster = &tcv1.TidbClusterRef{
-				Name:      tc.Name,
-				Namespace: tc.Namespace,
-			}
-			// set owner references
-			newtc.OwnerReferences = tc.OwnerReferences
-			_, err := sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Create(newtc)
-			if err != nil {
-				if errors.IsAlreadyExists(err) {
-					newtc, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Get(name, metav1.GetOptions{})
-					if err != nil {
-						klog.Errorf("[%s/%s] get TidbClusters failed", tc.Namespace, name)
-						return err
-					}
-				} else {
-					klog.Errorf("[%s/%s] create TidbClusters failed", tc.Namespace, name)
+		newtc.Labels = util.New().Instance(name).BcRdsInstance(tc.Name)
+		newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
+		newtc.Spec.TiDB.Replicas = 0
+		newtc.Spec.TiDB.Limits = limit
+		newtc.Spec.Version = tc.Spec.Version
+		newtc.Spec.TiDB.Service = nil
+		newtc.Spec.TiDB.StorageClassName = tc.Spec.TiDB.StorageClassName
+		newtc.Spec.SchedulerName = tc.Spec.SchedulerName
+		newtc.Spec.TiDB.Requests = limit.DeepCopy()
+		newtc.Spec.Annotations = map[string]string{
+			util.InstanceAnnotationKey: tc.Name,
+		}
+		newtc.Spec.Cluster = &tcv1.TidbClusterRef{
+			Name:      tc.Name,
+			Namespace: tc.Namespace,
+		}
+		// set owner references
+		newtc.OwnerReferences = tc.OwnerReferences
+		_, err := sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Create(newtc)
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				newtc, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Get(name, metav1.GetOptions{})
+				if err != nil {
+					klog.Errorf("[%s/%s] get TidbClusters failed", tc.Namespace, name)
 					return err
 				}
+			} else {
+				klog.Errorf("[%s/%s] create TidbClusters failed", tc.Namespace, name)
+				return err
 			}
-		} else {
-			newtc = v
 		}
-		sigle, err := GetHashRate(newtc)
+	} else {
+		newtc = v
+	}
+	return nil
+}
+
+func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster, tcArr *TClus, tc *tcv1.TidbCluster) error {
+	var newtc = &tcv1.TidbCluster{}
+	var name string
+	name = tc.Name +"-"+TP
+	var limit = make(corev1.ResourceList)
+	cpuLimit := tc.Spec.TiDB.Limits[corev1.ResourceMemory].DeepCopy()
+	memLimit := tc.Spec.TiDB.Limits[corev1.ResourceCPU].DeepCopy()
+	cpuLimit.Add(cpuLimit)
+	memLimit.Add(memLimit)
+	limit[corev1.ResourceCPU] = cpuLimit
+	limit[corev1.ResourceMemory] = memLimit
+	if err:=createTC(newtc,existClusterMap,name,tc,limit);err!= nil {
+		return err
+	}
+	var tcArray = []*tcv1.TidbCluster{tc,newtc}
+	for i,vtc := range tcArray {
+		sigle, err := GetHashRate(vtc)
 		if err != nil {
 			return err
 		}
@@ -1055,10 +1096,31 @@ func createNoExistAllTc(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]
 		tcArr.NewTc = append(tcArr.NewTc, sigle)
 		tcArr.NewTc[i].Tc = *sigle.Tc.DeepCopy()
 		tcArr.OldHashRate = tcArr.OldHashRate + tcArr.OldTc[i].HashratePerTidb*float64(tcArr.OldTc[i].Replicas)
+		tcArr.NewHashRate = tcArr.OldHashRate
 	}
-	tcArr.NewHashRate = tcArr.OldHashRate
 	return nil
 }
+
+func createNoExistAllTcAP(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster,tc *tcv1.TidbCluster) error {
+	var nameArr = []string{AP,BIGAP}
+	var hashRateArr = []float64{NormalHashrate3,NormalHashrate4}
+	memstr := "1Gi"
+	newMem, _ := resource.ParseQuantity(memstr)
+	for i,v := range nameArr {
+		var newtc = &tcv1.TidbCluster{}
+		limitMem := GetMemory(hashRateArr[i],newMem)
+		cpustr := fmt.Sprintf("%g", hashRateArr[i])
+		limitCpu, _ := resource.ParseQuantity(cpustr)
+		var limit = make(corev1.ResourceList)
+		limit[corev1.ResourceCPU] = limitCpu
+		limit[corev1.ResourceMemory] = limitMem
+		if err := createTC(newtc,existClusterMap,sldb.Name+"-"+v,tc,limit);err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 
 func CloneMutiRevsionTc(sldb *v1alpha1.ServerlessDB) (*TClus, error) {
 	tclist, err := GetTcArray(sldb)
@@ -1076,7 +1138,9 @@ func CloneMutiRevsionTc(sldb *v1alpha1.ServerlessDB) (*TClus, error) {
 			tc = tclist[i]
 			existClusMap[v.Name] = tclist[i]
 		} else {
-			if strings.Index(v.Name, sldb.Name+"-new") != -1 {
+			if strings.Index(v.Name, sldb.Name+"-"+TP) != -1 ||
+				strings.Index(v.Name, sldb.Name+"-"+AP) != -1 ||
+				strings.Index(v.Name, sldb.Name+"-"+BIGAP) != -1 {
 				existClusMap[v.Name] = tclist[i]
 			} else {
 				noNeedClusMap[v.Name] = tclist[i]
@@ -1094,30 +1158,20 @@ func CloneMutiRevsionTc(sldb *v1alpha1.ServerlessDB) (*TClus, error) {
 		for k, _ := range existClusMap {
 			err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(sldb.Namespace).Delete(k, &metav1.DeleteOptions{})
 			klog.Errorf("[%s/%s] delete failed", sldb.Namespace, k)
-			return &TClus{}, err
-		}
-		if tc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).Get(sldb.Name); err == nil {
-			if _, ok := tc.Labels[util.InstanceLabelKey]; !ok {
-				if tc.Labels == nil {
-					tc.Labels = make(map[string]string)
-				}
-				tc.Labels[util.InstanceLabelKey] = sldb.Name
-			}
-			if _, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(sldb.Namespace).Update(tc); err != nil {
-				return &TClus{}, fmt.Errorf("update sldb [%s/%s] failed: %v", sldb.Namespace, sldb.Name, err)
+			if err != nil {
+				return &TClus{}, err
 			}
 		}
-		// TODO: err != nil doesn't always mean `cluster is no exi(s)t`.
-		return &TClus{}, fmt.Errorf("[%s/%s] cluster is not exit", sldb.Namespace, sldb.Name)
+		return &TClus{},fmt.Errorf("tc %s is no exist",sldb.Name)
 	} else {
-		max, err := strconv.Atoi(TwoPattern)
+		err = createNoExistAllTcTP(sldb, existClusMap, tcArr, tc)
 		if err != nil {
-			klog.Errorf("[%s/%s] cluster TwoPattern prolem %s", sldb.Namespace, sldb.Name, err)
+			klog.Errorf("[%s/%s] create no exist TP tc failed: %s", sldb.Namespace, sldb.Name, err)
 			return &TClus{}, err
 		}
-		err = createNoExistAllTc(sldb, existClusMap, tcArr, tc, max)
+		err = createNoExistAllTcAP(sldb, existClusMap, tc)
 		if err != nil {
-			klog.Errorf("[%s/%s] create no exist tc failed: %s", sldb.Namespace, sldb.Name, err)
+			klog.Errorf("[%s/%s] create no exist AP tc failed: %s", sldb.Namespace, sldb.Name, err)
 			return &TClus{}, err
 		}
 	}
@@ -1187,13 +1241,23 @@ func GetHashrateAndReplicasPerTidb(sldb *v1alpha1.ServerlessDB, totalHashrate fl
 	if i == len(norms) {
 		return norms[i-1], int32(fRep)
 	} else {
-		reps := int32(totalHashrate / Hashrate)
+		reps := int32(math.Ceil(totalHashrate / Hashrate))
 		if reps > int32(fRep) {
 			reps = int32(fRep)
 		}
 		return Hashrate, reps
 	}
 }
+func GetMemory(hashratePerTidb float64,newMem resource.Quantity) resource.Quantity {
+	max := int(hashratePerTidb/MinHashraterPerTidb) / 2
+	var k int
+	for i := 0; k < max;i++ {
+		k = int(math.Pow(float64(2), float64(i)))
+		newMem.Add(newMem)
+	}
+	return newMem
+}
+ 
 
 func RecalculateScale(sldb *v1alpha1.ServerlessDB, tcArr *TClus, autoFlag bool) error {
 	var current float64
@@ -1228,20 +1292,29 @@ func RecalculateScale(sldb *v1alpha1.ServerlessDB, tcArr *TClus, autoFlag bool) 
 		}
 		memstr := "1Gi"
 		//complete memory resource
-		var newMem resource.Quantity
+		var newMem,limitCpu,limitMem resource.Quantity
 		newMem, _ = resource.ParseQuantity(memstr)
-		if FSmaller(hashratePerTidb, MinHashraterPerTidb) != true {
-			max := int(hashratePerTidb/MinHashraterPerTidb) / 2
-			var k int
-			for i := 0; k < max; i++ {
-				k = int(math.Pow(float64(2), float64(i)))
-				newMem.Add(newMem)
+		var hashrateMode float64
+		if FGreater(hashratePerTidb,MinHashraterPerTidb) == true {
+			hashrateMode = hashratePerTidb
+			limitCpu = newCpu
+		} else {
+			//0.5 hashrate use 1/4 max resource
+			hashrate := CalcMaxPerfResource(sldb.Spec.MaxValue.Metric)
+			hashrateMode = math.Ceil(float64(hashrate)/4.0)
+			cpustr := fmt.Sprintf("%g", hashrateMode)
+			limitCpu, err = resource.ParseQuantity(cpustr)
+			if err != nil {
+				klog.Errorf("[%s/%s] err %v limit cpustr %s", tcArr.NewTc[0].Tc.Namespace, tcArr.NewTc[0].Tc.Name, err, cpustr)
+				return err
 			}
 		}
-		tcArr.NewTc[1-pos].Tc.Spec.TiDB.ResourceRequirements.Limits[corev1.ResourceCPU] = newCpu
-		tcArr.NewTc[1-pos].Tc.Spec.TiDB.ResourceRequirements.Limits[corev1.ResourceMemory] = newMem
+		reqsMem := GetMemory(hashratePerTidb,newMem)
+		limitMem = GetMemory(hashrateMode,newMem)
+		tcArr.NewTc[1-pos].Tc.Spec.TiDB.ResourceRequirements.Limits[corev1.ResourceCPU] = limitCpu
+		tcArr.NewTc[1-pos].Tc.Spec.TiDB.ResourceRequirements.Limits[corev1.ResourceMemory] = limitMem
 		tcArr.NewTc[1-pos].Tc.Spec.TiDB.ResourceRequirements.Requests[corev1.ResourceCPU] = newCpu
-		tcArr.NewTc[1-pos].Tc.Spec.TiDB.ResourceRequirements.Requests[corev1.ResourceMemory] = newMem
+		tcArr.NewTc[1-pos].Tc.Spec.TiDB.ResourceRequirements.Requests[corev1.ResourceMemory] = reqsMem
 		tcArr.NewTc[1-pos].Replicas = reps
 		tcArr.NewTc[1-pos].Tc.Spec.TiDB.Replicas = reps
 		tcArr.NewTc[pos].Replicas = 0
@@ -1262,7 +1335,7 @@ func isCompleteRollingUpdate(set *apps.StatefulSet, status *apps.StatefulSetStat
 	var flag bool
 	for _, v := range set.Spec.Template.Spec.Containers {
 		if v.Name == "tidb" {
-			if tc.Spec.TiDB.Limits.Cpu().String() == v.Resources.Limits.Cpu().String() {
+			if tc.Spec.TiDB.Requests.Cpu().String() == v.Resources.Requests.Cpu().String() {
 				flag = true
 				break
 			}
@@ -1278,6 +1351,7 @@ func isCompleteRollingUpdate(set *apps.StatefulSet, status *apps.StatefulSetStat
 
 func UpdateOneTcToNewNorms(Tc *tcv1.TidbCluster, reps int32) error {
 	limits := Tc.Spec.TiDB.Limits.DeepCopy()
+	requets := Tc.Spec.TiDB.Requests.DeepCopy()
 	name := Tc.Name
 	namesp := Tc.Namespace
 	var err error
@@ -1286,15 +1360,15 @@ func UpdateOneTcToNewNorms(Tc *tcv1.TidbCluster, reps int32) error {
 		if tc, err = sldbcluster.SldbClient.PingCapLister.TidbClusters(namesp).Get(name); err == nil {
 			// make a copy so we don't mutate the shared cache
 			tc.Spec.TiDB.Limits = limits.DeepCopy()
-			tc.Spec.TiDB.Requests = limits.DeepCopy()
+			tc.Spec.TiDB.Requests = requets.DeepCopy()
 			if tc.Spec.TiDB.Replicas != reps {
 				return fmt.Errorf("[%s/%s] only replicas is %d update", namesp, name, reps)
 			}
 			//clear tidb delete information
 			if reps == 0 {
 				if tc.Annotations != nil {
-					if _, ok := tc.Annotations[label.AnnTiDBDeleteSlots]; ok {
-						delete(tc.Annotations, label.AnnTiDBDeleteSlots)
+					if _,ok:=tc.Annotations[label.AnnTiDBDeleteSlots];ok {
+						delete(tc.Annotations,label.AnnTiDBDeleteSlots)
 					}
 				}
 			}
@@ -1342,7 +1416,7 @@ func UpdateTCToNewNorms(tcArr *TClus) error {
 	for i := range tcArr.NewTc {
 		if tcArr.OldTc[i].Tc.Spec.TiDB.Replicas == int32(0) &&
 			tcArr.NewTc[i].Tc.Spec.TiDB.Replicas != int32(0) &&
-			tcArr.OldTc[i].Tc.Spec.TiDB.Limits.Cpu().String() != tcArr.NewTc[i].Tc.Spec.TiDB.Limits.Cpu().String() {
+			tcArr.OldTc[i].Tc.Spec.TiDB.Requests.Cpu().String() != tcArr.NewTc[i].Tc.Spec.TiDB.Requests.Cpu().String() {
 			err := UpdateOneTcToNewNorms(&tcArr.NewTc[i].Tc, 0)
 			if err != nil {
 				return err
@@ -1430,7 +1504,13 @@ func HanderAllScalerIn(tcArr *TClus, sldb *v1alpha1.ServerlessDB, sldbType tcv1.
 		}
 		var minReps int32
 		if FGreater(tcArr.NewHashRate, tcArr.OldHashRate) == true {
+			//need add replicas but no replicas add,need keep old status no change
 			if hasReplicas == false {
+				//keep old hashrate no change
+				tcArr.NewTc[0].Tc.Spec.TiDB.Replicas = tcArr.OldTc[0].Tc.Spec.TiDB.Replicas
+				tcArr.NewTc[0].Replicas = tcArr.NewTc[0].Tc.Spec.TiDB.Replicas
+				tcArr.NewTc[1].Tc.Spec.TiDB.Replicas = tcArr.OldTc[1].Tc.Spec.TiDB.Replicas
+				tcArr.NewTc[1].Replicas = tcArr.NewTc[1].Tc.Spec.TiDB.Replicas
 				return nil
 			}
 		} else {
@@ -1492,19 +1572,7 @@ func HanderAllScalerIn(tcArr *TClus, sldb *v1alpha1.ServerlessDB, sldbType tcv1.
 	return nil
 }
 
-func UpdateHashrate(tcArr *TClus) error {
-	var newHashrate float64
-	for i := range tcArr.NewTc {
-		newHashrate = newHashrate + float64(tcArr.NewTc[i].Replicas)*tcArr.NewTc[i].HashratePerTidb
-	}
-	msg := ""
-	if FEqual(newHashrate, tcArr.OldHashRate) == false {
-		tc := tcArr.NewTc[0].Tc
-		msg = fmt.Sprintf("[%s/%s] auto-scaling sldb tidb from %v to %v", tc.Namespace, tc.Name, tcArr.OldHashRate, newHashrate)
-		klog.Infoln(msg)
-	}
-	return nil
-}
+
 
 func GetNewAnnoAndReplias(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbCluster, oldTc *tcv1.TidbCluster,
 	sldbType tcv1.MemberType) error {

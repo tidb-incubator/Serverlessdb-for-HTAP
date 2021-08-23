@@ -20,6 +20,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,7 +80,7 @@ func (*Service) UpdateRule(ctx context.Context, req *scalepb.UpdateRequest) (*sc
 	var totalHashrate int
 	for _, ruleid := range sldb.Status.Rule {
 		rule := sldb.Spec.Rule[ruleid]
-		totalHashrate = totalHashrate + utils.CalcMaxPerfResource(rule.Metric)
+		totalHashrate = totalHashrate + int(utils.CalcMaxPerfResource(rule.Metric))
 	}
 	totalHashrate = utils.CompareResource(sldb.Spec.MaxValue.Metric, totalHashrate)
 
@@ -124,6 +125,7 @@ func (*Service) AutoScalerCluster(ctx context.Context, req *scalepb.AutoScaleReq
 	name := req.GetClustername()
 	ns := req.GetNamespace()
 	hashrate := req.GetHashrate()
+	scaletype := req.GetScaletype()
 	p, _ := peer.FromContext(ctx)
 	klog.Infof("[%s/%s]AutoScalerCluster method is called remote ip %s hashrate %v\n", ns, name, p, hashrate)
 	autoScalerFlag := req.GetAutoscaler()
@@ -132,7 +134,7 @@ func (*Service) AutoScalerCluster(ctx context.Context, req *scalepb.AutoScaleReq
 		ScalerNeedCore: float64(hashrate),
 		ScalerCurtime:  curtime,
 	}
-	utils.UpdateLastData(name, ns, &data, int(autoScalerFlag))
+	utils.UpdateLastData(name + "-" + scaletype, ns, &data, int(autoScalerFlag))
 	reply := &scalepb.UpdateReply{
 		Success: true,
 	}
@@ -147,6 +149,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 	clus := req.GetClustername()
 	ns := req.GetNamespace()
 	hashrate := req.GetHashrate()
+	scaletype := req.GetScaletype()
 	p, _ := peer.FromContext(ctx)
 	klog.Infof("[%s/%s]ScaleCluster method is called remote ip %s hashrate %v\n", ns, clus, p, hashrate)
 
@@ -176,7 +179,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 		klog.Infof("[%s/%s]ScaleCluster check tc", tc.Namespace, tc.Name)
 		if hashrate == 0 {
 			if i == 0 {
-				utils.CleanHashrate(&tc)
+				utils.CleanHashrate(&tc,scaletype)
 			}
 			if tc.Annotations != nil {
 				if _, ok := tc.Annotations[label.AnnTiDBDeleteSlots]; ok {
@@ -211,7 +214,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 				}
 			} else {
 				tc.Spec.TiDB.Replicas = 1
-				utils.OneHashrate(&tc)
+				utils.OneHashrate(&tc,scaletype)
 				if err = updateTc(&tc, tc.Spec.TiDB.Replicas, cpu); err != nil {
 					klog.Errorf("[%s/%s]update tc failed: %s", ns, tc.Name, err)
 					return reply, fmt.Errorf("update tc %s/%s failed.", tc.Namespace, tc.Name)
@@ -271,8 +274,8 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 			klog.Infof("[%s/%s] ScaleCluster DnsCheck success,pod %s", sldb.Namespace, sldb.Name, readyPod.Name)
 		}
 		var podList []*corev1.Pod
-		podList = append(podList, readyPod)
-		if err := utils.CallupTidb(podList, sldb.Name, sldb.Namespace); err != nil {
+		podList = append(podList,readyPod)
+		if err := utils.CallupTidb(podList,sldb.Name,sldb.Namespace);err!=nil {
 			return reply, err
 		}
 	}
@@ -296,8 +299,28 @@ func updateTc(tc *tidbv1.TidbCluster, replica int32, cpu resource.Quantity) erro
 	oneMemNorms, _ := resource.ParseQuantity("1Gi")
 	max := cpu.MilliValue() / norms.MilliValue()
 	var memNorms resource.Quantity
-	for i := 0; i < int(max); i++ {
-		memNorms.Add(oneMemNorms)
+	hashrate := 0.5*float64(max)
+	memNorms = utils.GetMemory(hashrate,oneMemNorms)
+	var limitCpu,limitMem resource.Quantity
+	if max == 1 {
+		nameArr := strings.Split(tc.Name,"-new")
+		sldb, err := utils.GetSldb(nameArr[0], tc.Namespace)
+		if err != nil {
+			return err
+		}
+		//0.5 hashrate use 1/4 max resource
+		hashrate := utils.CalcMaxPerfResource(sldb.Spec.MaxValue.Metric)
+		hashrateMode := math.Ceil(float64(hashrate)/4.0)
+		cpustr := fmt.Sprintf("%g", hashrateMode)
+		limitCpu,err = resource.ParseQuantity(cpustr)
+		if err != nil {
+			klog.Errorf("[%s/%s] err %v updateTc limit cpustr %s", tc.Namespace, tc.Name, err, cpustr)
+			return err
+		}
+		limitMem = utils.GetMemory(hashrateMode,oneMemNorms)
+	} else {
+		limitCpu = cpu
+		limitMem = memNorms
 	}
 	klog.Infof("[%s/%s] TidbCluster reps %d cpu %s memory %s\n", tc.Namespace, tc.Name, replica, cpu.String(), memNorms.String())
 	var updateFlag = true
@@ -312,8 +335,8 @@ func updateTc(tc *tidbv1.TidbCluster, replica int32, cpu resource.Quantity) erro
 				tc.Spec.TiDB.Requests = make(corev1.ResourceList)
 			}
 		}
-		tc.Spec.TiDB.Limits[corev1.ResourceCPU] = cpu
-		tc.Spec.TiDB.Limits[corev1.ResourceMemory] = memNorms
+		tc.Spec.TiDB.Limits[corev1.ResourceCPU] = limitCpu
+		tc.Spec.TiDB.Limits[corev1.ResourceMemory] = limitMem
 		tc.Spec.TiDB.Requests[corev1.ResourceCPU] = cpu
 		tc.Spec.TiDB.Requests[corev1.ResourceMemory] = memNorms
 	}
@@ -337,8 +360,8 @@ func updateTc(tc *tidbv1.TidbCluster, replica int32, cpu resource.Quantity) erro
 			tc.Spec.TiDB.Replicas = replica
 			tc.Annotations = oldAnnon
 			if replica != 0 {
-				tc.Spec.TiDB.Limits[corev1.ResourceCPU] = cpu
-				tc.Spec.TiDB.Limits[corev1.ResourceMemory] = memNorms
+				tc.Spec.TiDB.Limits[corev1.ResourceCPU] = limitCpu
+				tc.Spec.TiDB.Limits[corev1.ResourceMemory] = limitMem
 				tc.Spec.TiDB.Requests[corev1.ResourceCPU] = cpu
 				tc.Spec.TiDB.Requests[corev1.ResourceMemory] = memNorms
 			}
