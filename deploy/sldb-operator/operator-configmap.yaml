@@ -10,7 +10,7 @@ data:
     storage:
       storageClassName: "lvm-hostpath"
     tidbCluster:
-      version: v4.0.10
+      version: v5.1.1
       pd:
         requests:
           cpu: "2"

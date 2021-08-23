@@ -35,23 +35,10 @@ import (
 )
 
 const (
-	defaultTiDBVersion          = "v4.0.10"
+	defaultTiDBVersion          = "v5.1.1"
 	defaultSchedulerName        = "tidb-scheduler"
-	defaultTiDBImage            = "pingcap/tidb"
-	defaultTiKVImage            = "pingcap/tikv"
-	defaultPDImage              = "pingcap/pd"
-	defaultBinlogImage          = "pingcap/tidb-binlog"
-	defaultTiFlashImage         = "pingcap/tiflash"
-	defaultTiCDCImage           = "pingcap/ticdc"
 	defaultTidbInitializerImage = "tnir/mysqlclient"
-
-	nodeSelectorKeyServerlessDB  = "serverlessDB"
-	nodeSelectorValueTrue        = "true"
-	nodeSelectorKeyDiskType      = "DiskType"
-	nodeSelectorValueLSSSD       = "LSSSD"
-	nodeSelectorKeyComponentTiDB = "component/tidb"
-	nodeSelectorKeyComponentTiKV = "component/tikv"
-	nodeSelectorKeyComponentPD   = "component/pd"
+	RoleInstanceLabelKey string = "bcrds.cmss.com/role"
 )
 
 type tcMemberManager struct {
@@ -96,14 +83,11 @@ func (m *tcMemberManager) Sync(db *v1alpha1.ServerlessDB) error {
 		// get proxy port
 		if tb, err := m.deps.ServiceLister.Services(db.Namespace).Get(util.GetProxyResourceName(db.Name)); err == nil {
 			for _, port := range tb.Spec.Ports {
-				if port.Name == "database" && port.NodePort != 0 {
+				if port.Name == "mysql-client" && port.NodePort != 0 {
 					db.Status.NodePort[v1alpha1.TiDBServer] = port.NodePort
 				}
 			}
 		}
-		//if prometheus, err := m.deps.ServiceLister.Services(db.Namespace).Get(fmt.Sprintf("%s-tidb", db.Name)); err == nil {
-		//	db.Status.NodePort[v1alpha1.Prometheus] = prometheus.Spec.Ports
-		//}
 	}
 
 	return nil
@@ -195,6 +179,7 @@ func (m *tcMemberManager) getNewTidbClusterForServerlessDB(db *v1alpha1.Serverle
 						//},
 						Labels: map[string]string{
 							util.InstanceAnnotationKey: db.Name,
+							RoleInstanceLabelKey: "tp",
 						},
 					},
 					ResourceRequirements: m.deps.CLIConfig.Config.TiDBCluster.TiDB.ResourceRequirements.ParseResource(),

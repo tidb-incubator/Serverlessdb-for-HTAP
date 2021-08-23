@@ -119,7 +119,7 @@ var (
 	configStrict = flagBoolean(nmConfigStrict, false, "enforce config file validity")
 
 	//for proxy config
-	configForProxy  = flag.String("configproxy", "/etc/ks.yaml", "he3proxy config file")
+	configForProxy  = flag.String("configproxy", "/etc/proxy.yaml", "he3proxy config file")
 
 	// Base
 	store            = flag.String(nmStore, "unistore", "registered store name, [tikv, mocktikv, unistore]")
@@ -185,6 +185,10 @@ func main() {
 		return
 	}
 
+	proxyTcName := os.Getenv("CLUSTER_NAME")
+	namespace := os.Getenv("NAMESPACE")
+	proxycfg.Cluster.ClusterName = strings.Split(proxyTcName, "-")[0]
+	proxycfg.Cluster.NameSpace = namespace
 
 	config.GetGlobalConfig().Proxycfg=proxycfg
 

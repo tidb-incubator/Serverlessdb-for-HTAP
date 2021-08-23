@@ -132,13 +132,19 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 	//Distinguish SQL types based on costs
 	switch {
 	case cost <= 100:
+		var db *DB
+		var err error
 		//Predicate SQL is belong to TP type
 		pool := cluster.BackendPools[TiDBForTP]
-
-		db, err := pool.GetNextDB(lbIndicator)
-		if err != nil {
-			return nil, err
+		if cluster.ProxyNode.IsPureCompute && len(pool.Tidbs) == 1 {
+			db = pool.Tidbs[0]
+		} else {
+			db, err = pool.GetNextDB(lbIndicator)
+			if err != nil {
+				return nil, err
+			}
 		}
+
 		if db.Self {
 			atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
 		} else {

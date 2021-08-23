@@ -30,6 +30,7 @@ import (
 const initTiDBCount = 1
 const ComponentLabelKey string = "app.kubernetes.io/component"
 const AllInstanceLabelKey string = "bcrds.cmss.com/instance"
+const RoleInstanceLabelKey string = "bcrds.cmss.com/role"
 
 type Service struct{}
 
@@ -388,6 +389,7 @@ func CreateLargeTc(clusName, ns, largeTCName string) (*tidbv1.TidbCluster, error
 	}
 	newtc.Labels = util.New().Instance(largeTCName)
 	newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
+	newtc.Spec.TiDB.Labels[RoleInstanceLabelKey] = "bigcost"
 	newtc.Spec.TiDB.Replicas = 1
 	var limit = make(corev1.ResourceList)
 	limit[corev1.ResourceMemory] = resource.MustParse("2Gi")

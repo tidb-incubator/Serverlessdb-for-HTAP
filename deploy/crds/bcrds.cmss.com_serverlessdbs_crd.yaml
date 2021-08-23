@@ -70,15 +70,6 @@ spec:
                   type: object
                 hashRate:
                   type: string
-                performance:
-                  properties:
-                    delay:
-                      type: string
-                    maxConnections:
-                      type: string
-                    maxTPMC:
-                      type: string
-                  type: object
               type: object
             minResource:
               description: ResourceRequirements describes the compute resource requirements.
@@ -138,15 +129,6 @@ spec:
                     properties:
                       hashRate:
                         type: string
-                      performance:
-                        properties:
-                          delay:
-                            type: string
-                          maxConnections:
-                            type: string
-                          maxTPMC:
-                            type: string
-                        type: object
                     type: object
                   period:
                     type: string
@@ -203,11 +185,6 @@ spec:
                 - type
                 type: object
               type: array
-            lastBackupTime:
-              description: LastBackupTime represents the last time the backup was
-                successfully created.
-              format: date-time
-              type: string
             nodePort:
               additionalProperties:
                 format: int32
