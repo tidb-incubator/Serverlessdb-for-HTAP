@@ -105,37 +105,46 @@ func execTask(funcVar func(sldb *v1alpha1.ServerlessDB) (bool, error), name stri
 	return nil
 }
 
+var taskType = []string{"Rule","Scaler","Size","storageScaler"}
 func scalerRuleTask() {
 	klog.Infof("[scalerRuleTask action start]")
-	execTask(rulemanager.AutoscaleByRule, "Rule")
+	execTask(rulemanager.AutoscaleByRule,"Rule")
 	klog.Infof("[scalerRuleTask action end]")
 }
 
-func scalerOutInTask() {
+func scalerOutInTaskTP() {
 	klog.Infof("[scalerOutTask action start]")
-	execTask(autoscaler.PtrScalerManager.SCalerOutInHandler, "Scaler")
+	execTask(contabScheduler.SCalerOutInHandler,"Scaler")
 	klog.Infof("[scalerOutTask action end]")
 }
 
-func ScalerInBaseOnMidWare() {
-	klog.Infof("[ScalerInBaseOnMidWare action start]")
-	execTask(autoscaler.PtrScalerManager.ScalerBaseOnMidWare, "Scaler")
-	klog.Infof("[ScalerInBaseOnMidWare action end]")
+func ScalerInBaseOnMidWareTP() {
+	klog.Infof("[ScalerInBaseOnMidWareTP action start]")
+	execTask(contabScheduler.ScalerBaseOnMidWareTP,"Scaler")
+	klog.Infof("[ScalerInBaseOnMidWareTP action end]")
+}
+
+func ScalerInBaseOnMidWareAP() {
+	klog.Infof("[ScalerInBaseOnMidWareAP action start]")
+	execTask(contabScheduler.ScalerBaseOnMidWareAP,"Scaler")
+	klog.Infof("[ScalerInBaseOnMidWareAP action end]")
 }
 
 func expandStorageTask() {
 	klog.Infof("[check expandStorageTask action start]")
-	execTask(autoscaler.PtrScalerManager.TiKVSCalerHandler, "storageScaler")
+	execTask(contabScheduler.TiKVSCalerHandler,"storageScaler")
 	klog.Infof("[check expandStorageTask action end]")
 }
 
+var contabScheduler autoscaler.AutoScalerAPI
 func ScalerTimeTask() {
-	autoscaler.AutoScalerInit()
-	c := cron.New()
+	contabScheduler = autoscaler.NewAutoScalerAPI()
+	c:= cron.New()
 	oneSecondSpec := "*/1 * * * * ?"
-	c.AddFunc(oneSecondSpec, ScalerInBaseOnMidWare)
+	c.AddFunc(oneSecondSpec,ScalerInBaseOnMidWareTP)
+	c.AddFunc(oneSecondSpec,ScalerInBaseOnMidWareAP)
 	secondSpec := "*/15 * * * * ?"
-	c.AddFunc(secondSpec, scalerOutInTask)
+	c.AddFunc(secondSpec,scalerOutInTaskTP)
 	c.AddFunc(secondSpec, expandStorageTask)
 	ruleSpec := "30 59 */1 * * ?"
 	c.AddFunc(ruleSpec, scalerRuleTask)
