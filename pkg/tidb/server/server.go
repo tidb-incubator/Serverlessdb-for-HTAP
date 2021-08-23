@@ -317,6 +317,9 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 	cluster.BackendPools = make(map[string]*backend.Pool)
 	cluster.BackendPools[backend.TiDBForTP] = &backend.Pool{}
 	cluster.BackendPools[backend.TiDBForAP] = &backend.Pool{}
+	cluster.ProxyNode = &backend.Proxy{
+		ProxyAsCompute: true,
+	}
 	cluster.DownAfterNoAlive = time.Duration(cfg.DownAfterNoAlive) * time.Second
 
 	var norms = []string{backend.TiDBForTP, backend.TiDBForAP}
@@ -372,7 +375,7 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 		golog.Info("server", "NewServer", "Server running", 0, "tidbtype is ", v,
 			"Podlist string is ----------", tidbs)
 
-		err = cluster.BackendPools[v].ParseTidbs(tidbs, cfg)
+		err = cluster.BackendPools[v].ParseTidbs(tidbs, v, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -423,7 +426,12 @@ func MakeTidbs(Podlist *v1.PodList, ns string) string {
 		}
 		cpuNum = getFloatCpu(cpuNum)
 		tcName := v.Labels[InstanceLabelKey]
-		result = result + podname + "." + tcName + "-tidb-peer" + "." + ns + ":" + TidbPort + "@" + cpuNum + ","
+		if v.Labels[RoleInstanceLabelKey]== "proxy" {
+			result = result + "self" + "@" + cpuNum
+		} else {
+			result = result + podname + "." + tcName + "-tidb-peer" + "." + ns + ":" + TidbPort + "@" + cpuNum + ","
+		}
+
 	}
 	return result
 }
@@ -503,7 +511,7 @@ func (s *Server) runserverless() {
 func (s *Server) CheckProxyRole() {
 	for {
 		tppool := s.cluster.BackendPools[backend.TiDBForTP]
-		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs
+		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs + s.cluster.ProxyNode.ProxyCost
 		switch {
 		case costs < 10000:
 			//proxy service as a pure tp type compute node, and no need other tp type tidb.
@@ -515,6 +523,10 @@ func (s *Server) CheckProxyRole() {
 				}
 			}
 			//todo: delete other tp type node when proxy node can deal all tp sql.
+			if !s.cluster.ProxyNode.IsPureCompute {
+				s.cluster.ProxyNode.IsPureCompute = true
+			}
+
 
 		case costs > 100000:
 			//proxy service as a pure proxy node, and remove from tp type backend pools.
@@ -525,6 +537,9 @@ func (s *Server) CheckProxyRole() {
 				tppool.InitBalancerAfterDeleteTidb("self")
 				s.cluster.ProxyNode.ProxyAsCompute = false
 			}
+			if s.cluster.ProxyNode.IsPureCompute {
+				s.cluster.ProxyNode.IsPureCompute = false
+			}
 		default:
 			//proxy service as a complex node which can compute as a tp type tidb and proxy request to others tidbs.
 			if !s.cluster.ProxyNode.ProxyAsCompute {
@@ -533,6 +548,9 @@ func (s *Server) CheckProxyRole() {
 				} else {
 					fmt.Println("add proxy into tp pools success when proxy as a complex compute node.")
 				}
+			}
+			if s.cluster.ProxyNode.IsPureCompute {
+				s.cluster.ProxyNode.IsPureCompute = false
 			}
 		}
 		time.Sleep(1 * time.Second)

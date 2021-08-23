@@ -62,6 +62,7 @@ type Pool struct {
 type Proxy struct {
 	ProxyAsCompute bool
 	ProxyCost int64
+	IsPureCompute bool
 }
 
 
@@ -172,18 +173,20 @@ func (cluster *Cluster) AddTidb(addr, tidbType string) error {
 		weight = 1
 	}
 	pool.TidbsWeights = append(pool.TidbsWeights, weight)
-	if db, err = cluster.OpenDB(addrAndWeight[0], weight); err != nil {
-		return err
-	} else {
-		if db.addr == "self" {
-			db.Self = true
-			cluster.ProxyNode.ProxyAsCompute = true
+	if addrAndWeight[0] == "self" {
+		db = &DB{
+			addr:   addrAndWeight[0],
+			Self:   true,
 		}
+		cluster.ProxyNode.ProxyAsCompute = true
+	} else if db, err = cluster.OpenDB(addrAndWeight[0], weight); err != nil {
+		return err
+	}
+
 		db.dbType = tidbType
 		pool.Tidbs = append(pool.Tidbs, db)
 		pool.InitBalancer()
 		return nil
-	}
 }
 
 
@@ -329,7 +332,7 @@ func (cluster *Pool) DownTidb(addr string, state int32) error {
 }
 
 //TidbStr(127.0.0.1:3306@2,192.168.0.12:3306@3)
-func (pool *Pool) ParseTidbs(Tidbs string,cfg config.ClusterConfig) error {
+func (pool *Pool) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfig) error {
 	var db *DB
 	var weight float64
 	var err error
@@ -353,17 +356,18 @@ func (pool *Pool) ParseTidbs(Tidbs string,cfg config.ClusterConfig) error {
 			weight = 1
 		}
 		pool.TidbsWeights = append(pool.TidbsWeights, weight)
-		if db, err = Open(addrAndWeight[0], cfg.User, cfg.Password, "", weight); err != nil {
-			continue
+		if addrAndWeight[0] == "self" {
+			db = &DB{
+				addr:   addrAndWeight[0],
+				Self:   true,
+			}
+		} else {
+			if db, err = Open(addrAndWeight[0], cfg.User, cfg.Password, "", weight); err != nil {
+				continue
+			}
 		}
 
-		if db.addr == "self" {
-			db.Self = true
-			//cluster.ProxyNode.ProxyAsCompute = true
-		}
-
-
-
+		db.dbType = dbType
 		pool.Tidbs = append(pool.Tidbs, db)
 	}
 	pool.InitBalancer()

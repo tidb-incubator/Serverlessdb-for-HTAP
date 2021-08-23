@@ -70,16 +70,7 @@ func IsIgnoreError(err error) bool {
 	return ok
 }
 
-// Connect to the database through proxy
-func GetHe3ProxyDBAddress(namespace, name string) (string, int32) {
-	return fmt.Sprintf("%s-he3proxy.%s", name, namespace), 9696
-}
-
-// Connect database directly through tidb-server svc
-func GetTiDBServerAddress(namespace, name string) (string, int32) {
-	return fmt.Sprintf("%s-tidb.%s", name, namespace), 4000
-}
 
 func GetProxyResourceName(instanceName string) string {
-	return fmt.Sprintf("%s-he3proxy", instanceName)
+	return fmt.Sprintf("%s-proxy", instanceName)
 }

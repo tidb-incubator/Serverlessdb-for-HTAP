@@ -13,9 +13,12 @@ import (
 	"strings"
 )
 
-const sldbLabelKey = "bcrds.cmss.com/instance"
-const podForceDelete = "ForceDelete"
-const podPreDelete = "predelete"
+const (
+	sldbLabelKey = "bcrds.cmss.com/instance"
+	podForceDelete = "ForceDelete"
+	podPreDelete = "predelete"
+	RoleInstanceLabelKey string = "bcrds.cmss.com/role"
+)
 
 
 type DBStatus struct {
@@ -52,6 +55,11 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(pod *core.Pod, ownerStatefulS
 		return adminresp
 	}
 
+	if pod.Labels[RoleInstanceLabelKey] == "bigcost" {
+		klog.Infof("[%s/%s]pod is belong bigcost tidb, admit to delete.\n", namespace, name)
+		return adminresp
+	}
+
 	if pod.Labels[podPreDelete] == "true" {
 		klog.Errorf("[%s/%s]deleting pod in process, cannot admit to delete.\n", namespace, name)
 		adminresp.Allowed = false
@@ -67,7 +75,8 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(pod *core.Pod, ownerStatefulS
 		return adminresp
 	}
 
-	url := "http://" + pod.Labels[sldbLabelKey] + "-he3proxy" + "." + namespace + ".svc:9797/api/v1/clusters/deltidb"
+	//url := "http://" + pod.Labels[sldbLabelKey] + "-he3proxy" + "." + namespace + ".svc:9797/api/v1/clusters/deltidb"
+	url := "http://" + pod.Labels[sldbLabelKey] + "-proxy" + "." + namespace + ".svc:10080/api/v1/clusters/deltidb"
 	addr := name + "." + tcName + "-tidb-peer." + namespace + ":4000@" + "1"
 	body := map[string]interface{}{}
 	body["cluster"] = pod.Labels[sldbLabelKey]
@@ -84,10 +93,17 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(pod *core.Pod, ownerStatefulS
 		klog.Infof("[%s/%s] delete tidb pod success.\n", namespace, name)
 		return adminresp
 	}
-	geturl := "http://" + pod.Labels[sldbLabelKey] + "-he3proxy" + "." + namespace + ".svc:9797/api/v1/clusters/status"
+	//geturl := "http://" + pod.Labels[sldbLabelKey] + "-he3proxy" + "." + namespace + ".svc:9797/api/v1/clusters/status"
+	geturl := "http://" + pod.Labels[sldbLabelKey] + "-proxy" + "." + namespace + ".svc:10080/api/v1/clusters/status"
 	response, err := req.Get(geturl)
 	if err != nil {
 		klog.Errorf("[%s/%s] get tidb instance list failed: %s", namespace, name, err)
+		newpod.Labels[podPreDelete] = "false"
+		_, err := pc.kubeCli.CoreV1().Pods(namespace).Update(newpod)
+		if err != nil {
+			klog.Errorf("[%s/%s]pod update predelete label failed, but admit to delete.\n", namespace, name)
+			return adminresp
+		}
 		adminresp.Allowed = false
 		return adminresp
 	}
@@ -97,6 +113,12 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(pod *core.Pod, ownerStatefulS
 	for _, instance := range instanceResp {
 		if strings.Contains(instance.Address, name) {
 			klog.Errorf("[%s/%s] get pod from proxy success, but delete failed, cannot admit to delete.", namespace, name)
+			newpod.Labels[podPreDelete] = "false"
+			_, err := pc.kubeCli.CoreV1().Pods(namespace).Update(newpod)
+			if err != nil {
+				klog.Errorf("[%s/%s]pod update predelete label failed, but admit to delete.\n", namespace, name)
+				return adminresp
+			}
 			adminresp.Allowed = false
 			return adminresp
 		}

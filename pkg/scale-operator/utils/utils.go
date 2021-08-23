@@ -1602,7 +1602,8 @@ func GetNewAnnoAndReplias(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbCluster, old
 
 func getMidWareTidb(name, namesp string) ([]DBStatus, error) {
 	webclient := webClient.NewAutoScalerClientApi()
-	url := "http://" + name + "-" + "he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/status"
+	//url := "http://" + name + "-" + "he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/status"
+	url := "http://" + name + "-proxy" + "." + namesp + ".svc.10080/api/v1/clusters/status"
 	podInfo, err := webclient.GetAllTidb(url)
 	if err != nil {
 		klog.Errorf("[%s/%s] SyncReplicasToMidWare GetAllTidb failed %v", namesp, name, err)
@@ -1664,7 +1665,8 @@ func postAddTidb(podList []*corev1.Pod, name, namesp string) error {
 		return err
 	}
 	if needRegister == true {
-		postUrl := "http://" + name + "-he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/sldb/Tidbs"
+		//postUrl := "http://" + name + "-he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/sldb/Tidbs"
+		postUrl := "http://" + name + "-proxy" + "." + namesp + ".svc:10080/api/v1/clusters/sldb/Tidbs"
 		var err error
 		for {
 			err = webclient.PostAddTidb(postUrl, name, namesp)
@@ -1751,7 +1753,8 @@ func SyncReplicasToMidWare(tcArr *TClus) error {
 	// delete no register
 	webclient := webClient.NewAutoScalerClientApi()
 	for _, addr := range reducePod {
-		postUrl := "http://" + name + "-he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/tidbs"
+		//postUrl := "http://" + name + "-he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/tidbs"
+		postUrl := "http://" + name + "-proxy" + "." + namesp + ".svc:10080/api/v1/clusters/tidbs"
 		if err := webclient.DeleteErrorTidb(postUrl, name, namesp, addr); err != nil {
 			klog.Errorf("[%s/%s] SyncReplicasToMidWare DeleteErrorTidb failed %v", namesp, name, err)
 			return err

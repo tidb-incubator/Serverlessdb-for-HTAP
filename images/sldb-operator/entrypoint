@@ -9,4 +9,5 @@ if ! whoami &>/dev/null; then
   fi
 fi
 
-exec ${OPERATOR} --config ${OPERATOR_CONFIG} $@
+#exec ${OPERATOR} --config ${OPERATOR_CONFIG} $@
+#/usr/local/bin/serverless-operator --config /usr/local/bin/operator_config.yaml

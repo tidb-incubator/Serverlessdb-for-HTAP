@@ -32,7 +32,7 @@ WORKDIR /go/src/github.com/pingcap/tidb
 COPY go.mod .
 COPY go.sum .
 
-RUN GO111MODULE=on go mod download
+RUN GO111MODULE=on GOPROXY=https://goproxy.cn go mod download
 
 # Build real binaries
 COPY . .
@@ -46,6 +46,7 @@ RUN apk add --no-cache \
 
 COPY --from=builder /go/src/github.com/pingcap/tidb/bin/tidb-server /tidb-server
 COPY --from=builder /usr/local/bin/dumb-init /usr/local/bin/dumb-init
+COPY --from=builder /go/src/github.com/pingcap/tidb/tidb-server/proxy.yaml /etc/proxy.yaml
 
 WORKDIR /
 
