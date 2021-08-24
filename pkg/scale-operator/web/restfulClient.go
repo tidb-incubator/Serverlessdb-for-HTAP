@@ -10,7 +10,7 @@ import (
 )
 
 type HttpApiClient interface {
-	PostAddTidb(url string, name string, namesp string) error
+	PostAddTidb(url string, name string, namesp string,scalertype string) error
 	DeleteTidb(url string, name string, namesp string, instances []string, weight string) ([]string, error)
 	GetAllTidb(url string) (string, error)
 	DeleteErrorTidb(url string, name string, namesp string, addr string) error
@@ -18,10 +18,10 @@ type HttpApiClient interface {
 
 type AutoScalerClientApi struct{}
 
-func tryPostAddTidb(url string, name string, namesp string) error {
+func tryPostAddTidb(url string, name string, namesp string,scalertype string) error {
 	contentType := "application/json"
-	bobyPattern := `{"cluster":"%s","namespace":"%s"}`
-	boby := fmt.Sprintf(bobyPattern, name, namesp)
+	bobyPattern := `{"cluster":"%s","namespace":"%s","scaletype":"%s"}`
+	boby := fmt.Sprintf(bobyPattern, name, namesp,scalertype)
 	postTidb := strings.NewReader(boby)
 	resp, err := http.Post(url, contentType, postTidb)
 	if resp != nil && resp.StatusCode == http.StatusOK {
@@ -51,14 +51,14 @@ func (*AutoScalerClientApi) GetAllTidb(url string) (string, error) {
 	return string(bytes), nil
 }
 
-func (*AutoScalerClientApi) PostAddTidb(url string, name string, namesp string) error {
+func (*AutoScalerClientApi) PostAddTidb(url string, name string, namesp string,scalertype string) error {
 	count := 0
 	for {
-		err := tryPostAddTidb(url, name, namesp)
+		err := tryPostAddTidb(url, name, namesp,scalertype)
 		if err == nil {
 			break
 		}
-		if count > 30 {
+		if count > 0 {
 			return err
 		}
 		count++

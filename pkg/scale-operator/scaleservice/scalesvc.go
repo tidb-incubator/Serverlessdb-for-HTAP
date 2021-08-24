@@ -85,7 +85,7 @@ func (*Service) UpdateRule(ctx context.Context, req *scalepb.UpdateRequest) (*sc
 	}
 	totalHashrate = utils.CompareResource(sldb.Spec.MaxValue.Metric, totalHashrate)
 
-	tclist, err := utils.CloneMutiRevsionTc(sldb)
+	tclist,_,err := utils.CloneMutiRevsionTc(sldb,utils.TP)
 	if err != nil {
 		klog.Errorf("sldb %s/%s clone multi revision TC failed: %v.", sldb.Namespace, sldb.Name, err)
 		return reply, err
@@ -250,7 +250,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 			break
 		}
 
-		pods, listerr = utils.GetK8sAllPodArray(sldb.Name, sldb.Namespace, tidbv1.TiDBMemberType)
+		pods, listerr = utils.GetK8sAllPodArray(sldb.Name, sldb.Namespace, tidbv1.TiDBMemberType,scaletype)
 		if listerr != nil {
 			klog.Errorf("[%s/%s] get pods list failed: %s", sldb.Namespace, sldb.Name, listerr)
 			break
@@ -276,7 +276,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 		}
 		var podList []*corev1.Pod
 		podList = append(podList,readyPod)
-		if err := utils.CallupTidb(podList,sldb.Name,sldb.Namespace);err!=nil {
+		if err := utils.CallupTidb(podList,sldb.Name,sldb.Namespace,scaletype);err!=nil {
 			return reply, err
 		}
 	}
@@ -446,7 +446,7 @@ func PodStatusHander(ns, largeTCName, index string) bool {
 			continue
 		}
 		var podlist []*corev1.Pod
-		if podlist, err = utils.GetK8sPodArray(currtc, tidbv1.TiDBMemberType); err != nil {
+		if podlist, err = utils.GetK8sPodArray(currtc, tidbv1.TiDBMemberType,utils.TP); err != nil {
 			klog.Infof("[%s/%s] GetK8sPodArray failed %v", ns, largeTCName, err)
 			continue
 		}
@@ -503,7 +503,7 @@ func GetAnnoIndex(tc *tidbv1.TidbCluster) (string, map[string]string, error) {
 		klog.Infof("[%s/%s] index is null--------", tc.Namespace, tc.Name)
 		var podlist []*corev1.Pod
 		var err error
-		if podlist, err = utils.GetK8sPodArray(tc, tidbv1.TiDBMemberType); err != nil {
+		if podlist, err = utils.GetK8sPodArray(tc, tidbv1.TiDBMemberType,utils.TP); err != nil {
 			klog.Infof("[%s/%s] GetK8sPodArray failed %v", tc.Namespace, tc.Name, err)
 			return index, anno, err
 		}
