@@ -16,6 +16,7 @@ const (
 
 	InstanceAnnotationKey string = "bcrds.cmss.com/instance"
 	BcRdsInstanceLabelKey        = InstanceAnnotationKey
+	RoleInstanceLabelKey string = "bcrds.cmss.com/role"
 
 	// RestartAtAnnotationKey represents restart flag
 	RestartAtAnnotationKey string = "bcrds.cmss.com/restartAt"

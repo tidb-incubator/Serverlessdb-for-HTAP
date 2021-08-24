@@ -69,7 +69,7 @@ func AutoscaleByRule(sldb *v1alpha1.ServerlessDB) (bool, error) {
 
 		totalHashrate = utils.CompareResource(sldb.Spec.MaxValue.Metric, totalHashrate)
 
-		tclist, err := utils.CloneMutiRevsionTc(sldb)
+		tclist,_,err := utils.CloneMutiRevsionTc(sldb,utils.TP)
 		if err != nil {
 			klog.Errorf("sldb %s/%s clone multi revision TC failed: %v.", sldb.Namespace, sldb.Name, err)
 			return false, err

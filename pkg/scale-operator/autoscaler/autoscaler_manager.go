@@ -21,7 +21,6 @@ import (
 	"math"
 	"os"
 	"strconv"
-	"strings"
 	//slcluster "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/utils"
 	sldbv1 "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/sldb-operator/apis/bcrds/v1alpha1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -47,7 +46,6 @@ func NewAutoScalerAPI() AutoScalerAPI {
 	}
 }
 
-
 func (am *AutoScalerManager) SCalerOutInHandler(sldb *sldbv1.ServerlessDB) (bool, error) {
 	return true, am.autoScalerHander(sldb, v1alpha1.TiDBMemberType)
 }
@@ -58,29 +56,35 @@ func (am *AutoScalerManager) TiKVSCalerHandler(sldb *sldbv1.ServerlessDB) (bool,
 
 func (am *AutoScalerManager) ScalerBaseOnMidWareAP(sldb *sldbv1.ServerlessDB) (bool,error) {
 	//get all tc
-	tclist, err := utils.GetTcArray(sldb)
-	if err != nil {
-		return false,err
+	tclus,tc,err := utils.CloneMutiRevsionTc(sldb,utils.AP)
+	if tclus == nil {
+		klog.Infof("[%s/%s] CloneMutiRevsionTc problem err %v", sldb.Namespace, sldb.Name, err)
+		return false, fmt.Errorf("[%s/%s] CloneMutiRevsionTc problem err %v",sldb.Namespace, sldb.Name,err)
 	}
 	// check AP tc status
-	var tc *v1alpha1.TidbCluster
-	for _,v := range tclist {
-		if strings.Index(v.Name,"-"+utils.AP) != -1 {
-			tc = v
-			break
-		}
-	}
-	if tc == nil {
-		return false, fmt.Errorf("[%s/%s] AP tc is no exist",sldb.Namespace,sldb.Name)
-	}
-	if tc.Status.TiDB.Phase != v1alpha1.NormalPhase {
+	if tclus.OldTc[0].Tc.Status.TiDB.Phase != v1alpha1.NormalPhase || tc.Status.TiKV.Phase != v1alpha1.NormalPhase {
 		return false, fmt.Errorf("[%s/%s] AP tc is no normal",sldb.Namespace,sldb.Name)
 	}
+	//get proxy hashrate
 	v,err := utils.GetLastData(sldb.Name+"-"+utils.AP,sldb.Namespace)
 	if err != nil {
 		return false,err
 	}
 	klog.Infof("[%s/%s] ScalerBaseOnMidWareAP %v,%v",sldb.Namespace,sldb.Name,v)
+	if v.ScalerFlag == utils.ScalerIn {
+		if tclus.NewHashRate < v.ScalerNeedCore {
+			tclus.NewHashRate = v.ScalerNeedCore
+		}
+		utils.ChangeScalerStatus(sldb.Name+"-"+utils.AP,sldb.Namespace)
+	} else {
+		//正常扩缩
+		if v.ScalerNeedCore > tclus.NewHashRate {
+			tclus.NewHashRate = v.ScalerNeedCore
+		}
+	}
+	if err := am.SyncTidbClusterReplicas(sldb, tclus, v1alpha1.TiDBMemberType); err != nil {
+		return false,err
+	}
 	return true,nil
 }
 
@@ -109,7 +113,7 @@ func (am *AutoScalerManager) ScalerBaseOnMidWareTP(sldb *sldbv1.ServerlessDB) (b
 		if v.ScalerNeedCore > tclus.NewHashRate {
 			if utils.FEqual(tclus.NewHashRate, 0.5) == true {
 				firstSucess = true
-				tclus.NewHashRate = math.Ceil(v.ScalerNeedCore) * 2.0
+				tclus.NewHashRate = math.Ceil(v.ScalerNeedCore) * 4.0
 			} else {
 				tclus.NewHashRate = v.ScalerNeedCore
 			}
@@ -155,7 +159,7 @@ func (am *AutoScalerManager) autoScalerHander(sldb *sldbv1.ServerlessDB, sldbTyp
 		return fmt.Errorf("[%s/%s] clusterStatusCheck problem",sldb.Namespace, sldb.Name)
 	}
 	if sldbType == v1alpha1.TiDBMemberType {
-		err := utils.SyncReplicasToMidWare(tclus)
+		err := utils.SyncReplicasToMidWare(tclus,utils.TP)
 		if err != nil {
 			return fmt.Errorf("[%s/%s]%v", sldb.Namespace, sldb.Name, err)
 		}

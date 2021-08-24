@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	"reflect"
+
 	//"k8s.io/kubernetes/pkg/api/v1/resource"
 	tcv1 "github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	sldbcluster "github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/scale-operator/sldbcluster"
@@ -328,7 +329,7 @@ func sortChoiceScalerInstance(arr []ChoiceScalerInstance) {
 }
 
 func choiceNeedReduceReplicas(tc *tcv1.TidbCluster, normalInstances []string, NeedReduceReplicas int32, component string) []string {
-	podList, err := GetK8sPodArray(tc, tcv1.MemberType(component))
+	podList, err := GetK8sPodArray(tc, tcv1.MemberType(component),TP)
 	if err != nil {
 		klog.Errorf("[%s/%s] k8s query pod failed,needReduce %v", tc.Namespace, tc.Name, normalInstances[0:NeedReduceReplicas:NeedReduceReplicas])
 		return normalInstances[0:NeedReduceReplicas:NeedReduceReplicas]
@@ -470,8 +471,7 @@ func FilterNeedReduceTidbReplicasIndex(tc *tcv1.TidbCluster, reduceReplica int, 
 	return fArr, err
 }
 
-
-func GetK8sAllPodArray(name string, namesp string, sldbType tcv1.MemberType) ([]*corev1.Pod, error) {
+func GetK8sAllPodArray(name string, namesp string, sldbType tcv1.MemberType,scalertype string) ([]*corev1.Pod, error) {
 	labelkv:= fmt.Sprintf(`%s=%s,%s=%s,%s=%s`, "app.kubernetes.io/component",string(sldbType),
 		"bcrds.cmss.com/instance",name,"app.kubernetes.io/managed-by","tidb-operator")
 	listopt := metav1.ListOptions{
@@ -489,13 +489,17 @@ func GetK8sAllPodArray(name string, namesp string, sldbType tcv1.MemberType) ([]
 					continue
 				}
 			}
-			podarr = append(podarr, &podlist.Items[i])
+			if scalertype == TP && strings.Contains(v.Name,name+"-t") == true{
+				podarr = append(podarr, &podlist.Items[i])
+			} else if strings.Contains(v.Name,name+"-"+scalertype) == true {
+				podarr = append(podarr, &podlist.Items[i])
+			}
 		}
 	}
 	return podarr, nil
 }
 
-func GetK8sPodArray(tc *tcv1.TidbCluster, sldbType tcv1.MemberType) ([]*corev1.Pod, error) {
+func GetK8sPodArray(tc *tcv1.TidbCluster, sldbType tcv1.MemberType,scalertype string) ([]*corev1.Pod, error) {
 	labelkv := fmt.Sprintf(`%s=%s,%s=%s,%s=%s`, "app.kubernetes.io/component", string(sldbType), "app.kubernetes.io/instance", tc.Name,
 		"app.kubernetes.io/managed-by", "tidb-operator")
 	listopt := metav1.ListOptions{
@@ -513,7 +517,13 @@ func GetK8sPodArray(tc *tcv1.TidbCluster, sldbType tcv1.MemberType) ([]*corev1.P
 					continue
 				}
 			}
-			podarr = append(podarr, &podlist.Items[i])
+			nameArr := strings.Split(v.Name,"-")
+			name := nameArr[0]
+			if scalertype == TP && strings.Contains(v.Name,name+"-t") == true{
+				podarr = append(podarr, &podlist.Items[i])
+			} else if strings.Contains(v.Name,name+"-"+scalertype) == true {
+				podarr = append(podarr, &podlist.Items[i])
+			}
 		}
 	}
 	return podarr, nil
@@ -631,7 +641,7 @@ func PodStatusCheckRollback(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbCluster, o
 			}
 		}
 		// dns check
-		if podlist, err := GetK8sPodArray(tc, sldbType); err == nil {
+		if podlist, err := GetK8sPodArray(tc, sldbType,TP); err == nil {
 			wg := sync.WaitGroup{}
 			klog.Infof("[%s/%s] PodStatusCheckRollback sucessArr %v", tc.Namespace, tc.Name, sucessArr)
 			for _, v := range sucessArr {
@@ -744,7 +754,7 @@ func FilterFailedAndNoHealthInstance(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbC
 	var failedInstance, pendingInstance, sucessInstance []string
 	var podlist []*corev1.Pod
 	var err error
-	if podlist, err = GetK8sPodArray(tc, sldbType); err != nil {
+	if podlist, err = GetK8sPodArray(tc, sldbType,TP); err != nil {
 		return nil, nil, nil, err
 	}
 	if sldbType == tcv1.TiDBMemberType {
@@ -988,9 +998,38 @@ type TClus struct {
 	NewHashRate float64
 }
 
-func GetTcArray(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster, error) {
+func GetTcArrayTP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster, error) {
 	selector := labels.NewSelector().Add(*util.LabelEq(util.InstanceLabelKey, sldb.Name))
-	return sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).List(selector)
+	list,err := sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).List(selector)
+	if err != nil {
+		return list,err
+	}
+	var tpTcArr  []*tcv1.TidbCluster
+	for _,v := range list {
+		if v.Name == sldb.Name+"-"+TP  ||
+			v.Name == sldb.Name {
+			tpTcArr = append(tpTcArr,v)
+		}
+	}
+	return tpTcArr,nil
+}
+
+func GetTcArrayAP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster,*tcv1.TidbCluster,error) {
+	selector := labels.NewSelector().Add(*util.LabelEq(util.InstanceLabelKey, sldb.Name))
+	list,err := sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).List(selector)
+	if err != nil {
+		return list,nil,err
+	}
+	var apTcArr  []*tcv1.TidbCluster
+	var tc *tcv1.TidbCluster
+	for _,v := range list {
+		if v.Name == sldb.Name+"-"+AP {
+			apTcArr = append(apTcArr,v)
+		} else if v.Name == sldb.Name {
+			tc = v.DeepCopy()
+		}
+	}
+	return apTcArr,tc,nil
 }
 
 func GetHashRate(tc *tcv1.TidbCluster) (SigleTc, error) {
@@ -1072,6 +1111,21 @@ func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbClust
 	return nil
 }
 
+func getMutilTC(tcArray []*tcv1.TidbCluster,tcArr *TClus) error {
+	for i,vtc := range tcArray {
+		sigle, err := GetHashRate(vtc)
+		if err != nil {
+			return err
+		}
+		tcArr.OldTc = append(tcArr.OldTc, sigle)
+		tcArr.NewTc = append(tcArr.NewTc, sigle)
+		tcArr.NewTc[i].Tc = *sigle.Tc.DeepCopy()
+		tcArr.OldHashRate = tcArr.OldHashRate + tcArr.OldTc[i].HashratePerTidb*float64(tcArr.OldTc[i].Replicas)
+		tcArr.NewHashRate = tcArr.OldHashRate
+	}
+	return nil
+}
+
 func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster, tcArr *TClus, tc *tcv1.TidbCluster) error {
 	var newtc = &tcv1.TidbCluster{}
 	var name string
@@ -1087,95 +1141,67 @@ func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[strin
 		return err
 	}
 	var tcArray = []*tcv1.TidbCluster{tc,newtc}
-	for i,vtc := range tcArray {
-		sigle, err := GetHashRate(vtc)
-		if err != nil {
-			return err
-		}
-		tcArr.OldTc = append(tcArr.OldTc, sigle)
-		tcArr.NewTc = append(tcArr.NewTc, sigle)
-		tcArr.NewTc[i].Tc = *sigle.Tc.DeepCopy()
-		tcArr.OldHashRate = tcArr.OldHashRate + tcArr.OldTc[i].HashratePerTidb*float64(tcArr.OldTc[i].Replicas)
-		tcArr.NewHashRate = tcArr.OldHashRate
-	}
-	return nil
+	return getMutilTC(tcArray,tcArr)
 }
 
-func createNoExistAllTcAP(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster,tc *tcv1.TidbCluster) error {
-	var nameArr = []string{AP,BIGAP}
-	var hashRateArr = []float64{NormalHashrate3,NormalHashrate4}
+func createNoExistAllTcAP(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster,tcArr *TClus,tc *tcv1.TidbCluster) error {
 	memstr := "1Gi"
 	newMem, _ := resource.ParseQuantity(memstr)
-	for i,v := range nameArr {
-		var newtc = &tcv1.TidbCluster{}
-		limitMem := GetMemory(hashRateArr[i],newMem)
-		cpustr := fmt.Sprintf("%g", hashRateArr[i])
-		limitCpu, _ := resource.ParseQuantity(cpustr)
-		var limit = make(corev1.ResourceList)
-		limit[corev1.ResourceCPU] = limitCpu
-		limit[corev1.ResourceMemory] = limitMem
-		if err := createTC(newtc,existClusterMap,sldb.Name+"-"+v,tc,limit);err != nil {
-			return err
-		}
+	var name string
+	name = tc.Name +"-" + AP
+	var newtc = &tcv1.TidbCluster{}
+	limitMem := GetMemory(NormalHashrate3,newMem)
+	cpustr := fmt.Sprintf("%g", NormalHashrate3)
+	limitCpu, _ := resource.ParseQuantity(cpustr)
+	var limit = make(corev1.ResourceList)
+	limit[corev1.ResourceCPU] = limitCpu
+	limit[corev1.ResourceMemory] = limitMem
+	if err := createTC(newtc,existClusterMap,name,tc,limit);err != nil {
+		return err
 	}
-	return nil
+	var tcArray = []*tcv1.TidbCluster{newtc}
+	return getMutilTC(tcArray,tcArr)
 }
 
-
-func CloneMutiRevsionTc(sldb *v1alpha1.ServerlessDB) (*TClus, error) {
-	tclist, err := GetTcArray(sldb)
+func CloneMutiRevsionTc(sldb *v1alpha1.ServerlessDB,role string) (*TClus,*tcv1.TidbCluster,error) {
+	var tclist []*tcv1.TidbCluster
+	var err error
+	var tc *tcv1.TidbCluster
+	if role == TP {
+		tclist, err = GetTcArrayTP(sldb)
+	} else if role == AP {
+		tclist,tc,err = GetTcArrayAP(sldb)
+	} else {
+		err = fmt.Errorf("[%s/%s] role is no exits %s",sldb.Namespace,sldb.Name,role)
+	}
 	if err != nil {
-		return &TClus{}, err
+		return &TClus{},tc,err
 	}
 	var existClusMap = make(map[string]*tcv1.TidbCluster)
-	var noNeedClusMap = make(map[string]*tcv1.TidbCluster)
-	var exist int
-	var tc *tcv1.TidbCluster
 	var tcArr = &TClus{}
 	for i, v := range tclist {
-		if v.Name == sldb.Name {
-			exist = 1
+		if strings.Index(v.Name, sldb.Name+"-"+role) != -1 {
+			existClusMap[v.Name] = tclist[i]
+		} else if role == TP && v.Name == sldb.Name {
 			tc = tclist[i]
 			existClusMap[v.Name] = tclist[i]
-		} else {
-			if strings.Index(v.Name, sldb.Name+"-"+TP) != -1 ||
-				strings.Index(v.Name, sldb.Name+"-"+AP) != -1 ||
-				strings.Index(v.Name, sldb.Name+"-"+BIGAP) != -1 {
-				existClusMap[v.Name] = tclist[i]
-			} else {
-				noNeedClusMap[v.Name] = tclist[i]
-			}
 		}
-	}
-	//handler cluster
-	for k, _ := range noNeedClusMap {
-		err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(sldb.Namespace).Delete(k, &metav1.DeleteOptions{})
-		klog.Errorf("[%s/%s] delete failed", sldb.Namespace, k)
-		return &TClus{}, err
 	}
 	//add replicas
-	if exist == 0 {
-		for k, _ := range existClusMap {
-			err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(sldb.Namespace).Delete(k, &metav1.DeleteOptions{})
-			klog.Errorf("[%s/%s] delete failed", sldb.Namespace, k)
-			if err != nil {
-				return &TClus{}, err
-			}
-		}
-		return &TClus{},fmt.Errorf("tc %s is no exist",sldb.Name)
-	} else {
+	if role == TP {
 		err = createNoExistAllTcTP(sldb, existClusMap, tcArr, tc)
 		if err != nil {
 			klog.Errorf("[%s/%s] create no exist TP tc failed: %s", sldb.Namespace, sldb.Name, err)
-			return &TClus{}, err
+			return &TClus{},tc,err
 		}
-		err = createNoExistAllTcAP(sldb, existClusMap, tc)
+	} else {
+		err = createNoExistAllTcAP(sldb, existClusMap, tcArr, tc)
 		if err != nil {
 			klog.Errorf("[%s/%s] create no exist AP tc failed: %s", sldb.Namespace, sldb.Name, err)
-			return &TClus{}, err
+			return &TClus{},tc,err
 		}
 	}
-	return tcArr, nil
+	return tcArr,tc,nil
 }
 
 func GetTidbStatus(tcArr *TClus) tcv1.MemberPhase {
@@ -1257,11 +1283,39 @@ func GetMemory(hashratePerTidb float64,newMem resource.Quantity) resource.Quanti
 	}
 	return newMem
 }
- 
 
 func RecalculateScale(sldb *v1alpha1.ServerlessDB, tcArr *TClus, autoFlag bool) error {
 	var current float64
 	var pos = 0
+	//AP RecalculateScale
+	if len(tcArr.NewTc) == 1 {
+		if tcArr.NewHashRate > tcArr.OldHashRate  {
+			rep := (tcArr.NewHashRate - tcArr.OldHashRate)/tcArr.NewTc[0].HashratePerTidb
+			intRep := int(math.Floor(rep))
+			//more than 50% one tidb instances,replicas = replicas+1
+			if rep - math.Floor(rep) > 0.5 {
+				intRep = intRep + 1
+			}
+			if intRep != 0 {
+				tcArr.NewTc[0].Replicas = tcArr.NewTc[0].Replicas + 1
+				tcArr.NewTc[0].Tc.Spec.TiDB.Replicas = tcArr.NewTc[0].Replicas
+			}
+		} else {
+			rep := (tcArr.OldHashRate - tcArr.NewHashRate)/tcArr.NewTc[0].HashratePerTidb
+			intRep := int(math.Floor(rep))
+			//less than 80% one tidb instances,replicas = replicas-1
+			if rep - math.Floor(rep) > 0.8 {
+				intRep = intRep + 1
+			}
+			tcArr.NewTc[0].Replicas = tcArr.NewTc[0].Replicas - int32(intRep)
+			if tcArr.NewTc[0].Replicas < 1 {
+				tcArr.NewTc[0].Replicas = 1
+			}
+			tcArr.NewTc[0].Tc.Spec.TiDB.Replicas = tcArr.NewTc[0].Replicas
+		}
+		return nil
+	}
+	//tp RecalculateScale
 	for i, _ := range tcArr.NewTc {
 		if tcArr.NewTc[i].Replicas != 0 {
 			current = tcArr.NewTc[i].HashratePerTidb
@@ -1620,7 +1674,7 @@ func getMidWareTidb(name, namesp string) ([]DBStatus, error) {
 	return podDBArr, nil
 }
 
-func getMidwareAndScalerSyncStatus(podList []*corev1.Pod, name, namesp string) ([]string, bool, error) {
+func getMidwareAndScalerSyncStatus(podList []*corev1.Pod, name, namesp string,scalertype string) ([]string, bool, error) {
 	var needAddTidb []string
 	var needRegister bool
 	podDBArr, err := getMidWareTidb(name, namesp)
@@ -1647,8 +1701,11 @@ func getMidwareAndScalerSyncStatus(podList []*corev1.Pod, name, namesp string) (
 			if err != nil {
 				klog.Errorf("[%s/%s] SyncReplicasToMidWare DnsCheck failed %v", pod.Namespace, pod.Name, err)
 			} else {
-				needAddTidb = append(needAddTidb, pod.Name)
-				needRegister = true
+				if scalertype == TP && strings.Contains(pod.Name,name+"-t") == true ||
+					strings.Contains(pod.Name,name+"-"+scalertype) == true {
+					needAddTidb = append(needAddTidb, pod.Name)
+					needRegister = true
+				}
 				klog.Infof("[%s/%s] SyncReplicasToMidWare DnsCheck success", pod.Namespace, pod.Name)
 			}
 		}
@@ -1656,10 +1713,10 @@ func getMidwareAndScalerSyncStatus(podList []*corev1.Pod, name, namesp string) (
 	return needAddTidb, needRegister, nil
 }
 
-func postAddTidb(podList []*corev1.Pod, name, namesp string) error {
+func postAddTidb(podList []*corev1.Pod, name, namesp string,scalertype string) error {
 	webclient := webClient.NewAutoScalerClientApi()
 	var addCount int
-	needAddTidb, needRegister, err := getMidwareAndScalerSyncStatus(podList, name, namesp)
+	needAddTidb, needRegister, err := getMidwareAndScalerSyncStatus(podList, name, namesp,scalertype)
 	if err != nil {
 		klog.Infof("[%s/%s] postAddTidb getMidwareAndScalerSyncStatus failed: %v", namesp, name, err)
 		return err
@@ -1669,7 +1726,7 @@ func postAddTidb(podList []*corev1.Pod, name, namesp string) error {
 		postUrl := "http://" + name + "-proxy" + "." + namesp + ".svc:10080/api/v1/clusters/sldb/Tidbs"
 		var err error
 		for {
-			err = webclient.PostAddTidb(postUrl, name, namesp)
+			err = webclient.PostAddTidb(postUrl, name, namesp,scalertype)
 			if err != nil {
 				klog.Errorf("[%s/%s] SyncReplicasToMidWare PostAddTidb failed %v", namesp, name, err)
 			}
@@ -1691,30 +1748,35 @@ func postAddTidb(podList []*corev1.Pod, name, namesp string) error {
 			if addCount == len(needAddTidb) {
 				break
 			}
-			time.Sleep(3 * time.Second)
 			//重新get podList
-			podList, err = GetK8sAllPodArray(name, namesp, tcv1.TiDBMemberType)
+			podList, err = GetK8sAllPodArray(name, namesp, tcv1.TiDBMemberType,scalertype)
 			if err != nil {
 				klog.Errorf("[%s/%s] SyncReplicasToMidWare GetAllPodArray failed %v", namesp, name, err)
 				return err
 			}
-			needAddTidb, needRegister, err = getMidwareAndScalerSyncStatus(podList, name, namesp)
+			needAddTidb, needRegister, err = getMidwareAndScalerSyncStatus(podList, name, namesp,scalertype)
 			if err != nil {
 				klog.Infof("[%s/%s] postAddTidb   getMidwareAndScalerSyncStatus failed %v", namesp, name, err)
 				return err
+			}
+			//all register completed
+			if needRegister == false {
+				break
 			}
 		}
 	}
 	return nil
 }
 
-func SyncReplicasToMidWare(tcArr *TClus) error {
+func SyncReplicasToMidWare(tcArr *TClus,scalertype string) error {
 	if len(tcArr.NewTc) == 0 {
 		return fmt.Errorf("has no tc elem")
 	}
 	name := tcArr.NewTc[0].Tc.Name
+	nameArr := strings.Split(name,"-")
+	name = nameArr[0]
 	namesp := tcArr.NewTc[0].Tc.Namespace
-	podList, err := GetK8sAllPodArray(name, namesp, tcv1.TiDBMemberType)
+	podList, err := GetK8sAllPodArray(name, namesp, tcv1.TiDBMemberType,scalertype)
 	if err != nil {
 		klog.Errorf("[%s/%s] SyncReplicasToMidWare GetAllPodArray failed %v", namesp, name, err)
 		return err
@@ -1732,22 +1794,25 @@ func SyncReplicasToMidWare(tcArr *TClus) error {
 		if clus.Address != "" {
 			clusAddrArr := strings.Split(clus.Address, ",")
 			for _, addr := range clusAddrArr {
-				var podExist = false
-				for _, pod := range podList {
-					if strings.Contains(addr, pod.Name) == true {
-						podExist = true
-						break
+				if scalertype == TP && strings.Contains(addr,name+"-t") == true ||
+					strings.Contains(addr,name+"-"+scalertype) == true {
+					var podExist = false
+					for _, pod := range podList {
+						if strings.Contains(addr, pod.Name) == true {
+							podExist = true
+							break
+						}
 					}
-				}
-				if podExist == false {
-					podAddr := strings.Split(addr, ".")
-					reducePod = append(reducePod, podAddr[0])
+					if podExist == false {
+						podAddr := strings.Split(addr, ".")
+						reducePod = append(reducePod, podAddr[0])
+					}
 				}
 			}
 		}
 	}
 	// add  register node
-	if err := postAddTidb(podList, name, namesp); err != nil {
+	if err := postAddTidb(podList, name, namesp,scalertype); err != nil {
 		return err
 	}
 	// delete no register
@@ -1763,8 +1828,8 @@ func SyncReplicasToMidWare(tcArr *TClus) error {
 	return nil
 }
 
-func CallupTidb(podList []*corev1.Pod, name, namesp string) error {
-	err := postAddTidb(podList, name, namesp)
+func CallupTidb(podList []*corev1.Pod, name, namesp string,scaletype string) error {
+	err := postAddTidb(podList, name, namesp,scaletype)
 	return err
 }
 
@@ -1772,14 +1837,22 @@ func AutoScalerToMidWareScalerOut(tcArr *TClus) error {
 	if len(tcArr.NewTc) == 0 {
 		return fmt.Errorf("has no tc elem")
 	}
+	var scalertype string
+	if len(tcArr.NewTc) == 1 {
+		scalertype = AP
+	} else {
+		scalertype = TP
+	}
 	name := tcArr.NewTc[0].Tc.Name
+	nameArr := strings.Split(name,"-")
+	name = nameArr[0]
 	namesp := tcArr.NewTc[0].Tc.Namespace
 	var hasPodAdd bool
 	var podList []*corev1.Pod
 	var err error
 	for i := range tcArr.NewTc {
 		if tcArr.NewTc[i].Replicas > tcArr.OldTc[i].Replicas {
-			podList, err = GetK8sPodArray(&tcArr.NewTc[i].Tc, tcv1.TiDBMemberType)
+			podList, err = GetK8sPodArray(&tcArr.NewTc[i].Tc, tcv1.TiDBMemberType,scalertype)
 			if err != nil {
 				return err
 			}
@@ -1788,7 +1861,7 @@ func AutoScalerToMidWareScalerOut(tcArr *TClus) error {
 		}
 	}
 	if hasPodAdd == true {
-		err = CallupTidb(podList, name, namesp)
+		err = CallupTidb(podList, name, namesp,scalertype)
 		if err != nil {
 			return err
 		}
@@ -1813,7 +1886,7 @@ func ClusterStatusCheck(sldb *v1alpha1.ServerlessDB, sldbType tcv1.MemberType) (
 		klog.Infof("[%s/%s] autoScalerOutHander has been deleted\n", sldb.Namespace, sldb.Name)
 		return nil, nil
 	}
-	tclus, err := CloneMutiRevsionTc(sldb)
+	tclus,_,err := CloneMutiRevsionTc(sldb,TP)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil, nil
