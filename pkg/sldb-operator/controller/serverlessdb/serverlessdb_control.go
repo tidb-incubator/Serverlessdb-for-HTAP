@@ -96,13 +96,13 @@ func (c *defaultServerlessDBControl) UpdateServerlessDB(db *v1alpha1.ServerlessD
 		errs = append(errs, err)
 	}
 
-	if err := c.sldbBackupMemberManager.Sync(db); err != nil {
-		errs = append(errs, err)
-	}
-
-	if err := c.sldbRestoreMemberManager.Sync(db); err != nil {
-		errs = append(errs, err)
-	}
+	//if err := c.sldbBackupMemberManager.Sync(db); err != nil {
+	//	errs = append(errs, err)
+	//}
+	//
+	//if err := c.sldbRestoreMemberManager.Sync(db); err != nil {
+	//	errs = append(errs, err)
+	//}
 
 	if err := c.sldbFreezeMemberManager.Sync(db); err != nil {
 		errs = append(errs, err)

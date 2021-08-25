@@ -119,7 +119,7 @@ var (
 	configStrict = flagBoolean(nmConfigStrict, false, "enforce config file validity")
 
 	//for proxy config
-	configForProxy  = flag.String("configproxy", "/etc/proxy.yaml", "he3proxy config file")
+	configForProxy  = flag.String("configproxy", "/etc/proxy.yaml", "proxy config file")
 
 	// Base
 	store            = flag.String(nmStore, "unistore", "registered store name, [tikv, mocktikv, unistore]")

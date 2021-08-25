@@ -49,10 +49,10 @@ var ClusterName string
 var NameSpace string
 
 func GprcClientToCluster() error {
-	serviceName := "he3db-scaler-operator.he3db-admin.svc:8028"
+	serviceName := "scale-operator.sldb-admin.svc:8028"
 	conn, err := grpc.Dial(serviceName, grpc.WithInsecure())
 	if err != nil {
-		golog.Fatal("serverless","GprcClientToCluster","gprc to he3db-scaler failed",0,"address",serviceName)
+		golog.Fatal("serverless","GprcClientToCluster","gprc to scaler failed",0,"address",serviceName)
 		return err
 	}
 	ScalerClient = scalepb.NewScaleClient(conn)
@@ -120,7 +120,7 @@ func (sl *Scale) SetLastChange(diff float64) {
 	sl.lastchange = diff
 }
 
-func (sl *Scale) SetScalein(diffcores, needcore float64) {
+func (sl *Scale) SetScalein(diffcores, needcore float64, tidbtype string) {
 	sl.scalueincout++
 
 	if diffcores < sl.minscalinnum {
@@ -135,6 +135,7 @@ func (sl *Scale) SetScalein(diffcores, needcore float64) {
 			Curtime: time.Now().Unix(),
 			Hashrate: float32(needcore),
 			Autoscaler: 2,
+			Scaletype: tidbtype,
 		}
 		ScalerClient.AutoScalerCluster(context.Background(),req2)
 		sl.resetscalein()
@@ -170,7 +171,7 @@ func (sl *Serverless) scalein(currentcore, needcore float64, tidbType string) {
 			return
 		}
 	}
-	sl.multiScales[tidbType].SetScalein(currentcore - needcore, needcore)
+	sl.multiScales[tidbType].SetScalein(currentcore - needcore, needcore, tidbType)
 }
 
 func (sl *Scale) scaleout(currentcore, needcore float64, tidbtype string) {

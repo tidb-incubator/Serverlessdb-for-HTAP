@@ -70,11 +70,12 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 		}
 	}
 
-
-	if err = co.UseDB(c.dbname); err != nil {
-		//reset the database to null
-		c.dbname = ""
-		return
+	if !co.IsProxySelf() {
+		if err = co.UseDB(c.dbname); err != nil {
+			//reset the database to null
+			c.dbname = ""
+			return
+		}
 	}
 
 	return
@@ -94,6 +95,9 @@ func (c *clientConn) executeInNode(conn *backend.BackendConn, sql string, args [
 func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	sessionVars := c.ctx.GetSessionVars()
 	if sessionVars.InTxn() {
+		return
+	}
+	if conn == nil {
 		return
 	}
 	defer conn.Close()

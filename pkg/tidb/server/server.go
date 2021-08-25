@@ -198,6 +198,7 @@ func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 		concurrentLimiter: NewTokenLimiter(cfg.TokenLimit),
 		clients:           make(map[uint64]*clientConn),
 		globalConnID:      util.GlobalConnID{ServerID: 0, Is64bits: true},
+		counter: new(Counter),
 	}
 
 	if sl, err := parseServerless(s.cfg.Proxycfg, s, s.counter); err != nil {
@@ -208,6 +209,7 @@ func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 
 	cluster, err := parseCluster(cfg.Proxycfg.Cluster)
 	if err != nil {
+		golog.Error("Server", "parseCluster", err.Error(), 0)
 		return nil, err
 	}
 
@@ -347,11 +349,13 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 					break
 				}
 				for _, v := range ProxyPodlist.Items {
+
 					Podlist.Items = append(Podlist.Items, v)
 				}
 			}
 			readyFlag := false
 			for _, v := range Podlist.Items {
+				golog.Info("Server", "ReadyOrNot", fmt.Sprint("podname is %s", v.Name), 0)
 				if IsPodReady(&v) {
 					Pod = v.DeepCopy()
 					readyFlag = true
@@ -405,9 +409,10 @@ func dnsCheck(pod *v1.Pod, cfg *proxyconfig.ClusterConfig) error {
 	cmd := exec.Command("/bin/sh", "-c", dnscheck)
 	err := cmd.Start()
 	if err != nil {
+		golog.Error("Server","dnscheck",err.Error(), 0)
 		return err
 	}
-	golog.Debug("Server", "dnsCheck", "checking tidb headless ", 0)
+	golog.Info("Server", "dnsCheck", "checking tidb headless ", 0)
 	err = cmd.Wait()
 	return err
 }
@@ -527,6 +532,7 @@ func (s *Server) CheckProxyRole() {
 			if !s.cluster.ProxyNode.IsPureCompute {
 				s.cluster.ProxyNode.IsPureCompute = true
 			}
+			//fmt.Println("proxy is as pure compute node")
 
 
 		case costs > 100000:
@@ -541,6 +547,7 @@ func (s *Server) CheckProxyRole() {
 			if s.cluster.ProxyNode.IsPureCompute {
 				s.cluster.ProxyNode.IsPureCompute = false
 			}
+			//fmt.Println("proxy is as pure proxy node")
 		default:
 			//proxy service as a complex node which can compute as a tp type tidb and proxy request to others tidbs.
 			if !s.cluster.ProxyNode.ProxyAsCompute {
@@ -553,6 +560,7 @@ func (s *Server) CheckProxyRole() {
 			if s.cluster.ProxyNode.IsPureCompute {
 				s.cluster.ProxyNode.IsPureCompute = false
 			}
+			//fmt.Println("proxy is as complex compute node")
 		}
 		time.Sleep(1 * time.Second)
 	}

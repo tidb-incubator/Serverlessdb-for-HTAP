@@ -16,57 +16,37 @@ package pod
 import (
 	"encoding/json"
 	"fmt"
-	"sync"
-	"time"
 
-	"github.com/openshift/generic-admission-server/pkg/apiserver"
-	"github.com/pingcap/advanced-statefulset/client/apis/apps/v1/helper"
-	asclientset "github.com/pingcap/advanced-statefulset/client/client/clientset/versioned"
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/client/clientset/versioned"
-	informers "github.com/pingcap/tidb-operator/pkg/client/informers/externalversions"
-	v1alpha1listers "github.com/pingcap/tidb-operator/pkg/client/listers/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/features"
 	"github.com/pingcap/tidb-operator/pkg/label"
 	memberUtils "github.com/pingcap/tidb-operator/pkg/manager/member"
 	"github.com/pingcap/tidb-operator/pkg/pdapi"
-	"github.com/pingcap/tidb-operator/pkg/webhook/util"
+	"github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/webhook/util"
 	admission "k8s.io/api/admission/v1beta1"
 	apps "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-	eventv1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
 )
 
 type PodAdmissionControl struct {
-	lock           sync.RWMutex
-	initialized    bool
-	resyncDuration time.Duration
 	// kubernetes client interface
 	kubeCli kubernetes.Interface
 	// operator client interface
 	operatorCli versioned.Interface
 	// pd Control
 	pdControl pdapi.PDControlInterface
-	// the map of the service account from the request which should be checked by admission-webhook
+	// the map of the service account from the request which should be checked by webhook
 	serviceAccounts sets.String
-	// tc lister
-	tcLister v1alpha1listers.TidbClusterLister
 	// recorder to send event
 	recorder record.EventRecorder
 }
-
-var _ apiserver.ValidatingAdmissionHook = &PodAdmissionControl{}
-var _ apiserver.MutatingAdmissionHook = &PodAdmissionControl{}
 
 const (
 	stsControllerServiceAccounts = "system:serviceaccount:kube-system:statefulset-controller"
@@ -81,7 +61,7 @@ var (
 	AstsControllerServiceAccounts string
 )
 
-func NewPodAdmissionControl(extraServiceAccounts []string, resyncDuration time.Duration) *PodAdmissionControl {
+func NewPodAdmissionControl(kubeCli kubernetes.Interface, operatorCli versioned.Interface, PdControl pdapi.PDControlInterface, extraServiceAccounts []string, recorder record.EventRecorder) *PodAdmissionControl {
 	serviceAccounts := sets.NewString(stsControllerServiceAccounts)
 	for _, sa := range extraServiceAccounts {
 		serviceAccounts.Insert(sa)
@@ -90,27 +70,12 @@ func NewPodAdmissionControl(extraServiceAccounts []string, resyncDuration time.D
 		serviceAccounts.Insert(AstsControllerServiceAccounts)
 	}
 	return &PodAdmissionControl{
+		kubeCli:         kubeCli,
+		operatorCli:     operatorCli,
+		pdControl:       PdControl,
 		serviceAccounts: serviceAccounts,
-		resyncDuration:  resyncDuration,
+		recorder:        recorder,
 	}
-}
-
-func (w *PodAdmissionControl) ValidatingResource() (plural schema.GroupVersionResource, singular string) {
-	return schema.GroupVersionResource{
-			Group:    "admission.tidb.pingcap.com",
-			Version:  "v1alpha1",
-			Resource: "podvalidations",
-		},
-		"podvalidation"
-}
-
-func (w *PodAdmissionControl) MutatingResource() (plural schema.GroupVersionResource, singular string) {
-	return schema.GroupVersionResource{
-			Group:    "admission.tidb.pingcap.com",
-			Version:  "v1alpha1",
-			Resource: "podmutations",
-		},
-		"podmutation"
 }
 
 // admitPayload used to simply the param to make each function more easier
@@ -119,37 +84,20 @@ type admitPayload struct {
 	pod *core.Pod
 	// the ownerStatefulSet for target tidb component pod
 	ownerStatefulSet *apps.StatefulSet
-	// the owner controller for target tidb component pod
-	controller runtime.Object
+	// the owner tc for target tidb component pod
+	tc *v1alpha1.TidbCluster
 	// the pdClient for target tc
 	pdClient pdapi.PDClient
-	// description for pod's controller
-	controllerDesc controllerDesc
 }
 
-func (pc *PodAdmissionControl) Admit(ar *admission.AdmissionRequest) *admission.AdmissionResponse {
-	pc.lock.RLock()
-	defer pc.lock.RUnlock()
-	if !pc.initialized {
-		return &admission.AdmissionResponse{
-			Allowed: false,
-		}
-	}
-
+func (pc *PodAdmissionControl) MutatePods(ar *admission.AdmissionRequest) *admission.AdmissionResponse {
 	if ar.Operation != admission.Create && ar.Operation != admission.Update {
 		return util.ARSuccess()
 	}
 	return pc.mutatePod(ar)
 }
 
-func (pc *PodAdmissionControl) Validate(ar *admission.AdmissionRequest) *admission.AdmissionResponse {
-	pc.lock.RLock()
-	defer pc.lock.RUnlock()
-	if !pc.initialized {
-		return &admission.AdmissionResponse{
-			Allowed: false,
-		}
-	}
+func (pc *PodAdmissionControl) AdmitPods(ar *admission.AdmissionRequest) *admission.AdmissionResponse {
 
 	name := ar.Name
 	namespace := ar.Namespace
@@ -166,7 +114,7 @@ func (pc *PodAdmissionControl) Validate(ar *admission.AdmissionRequest) *admissi
 	case admission.Delete:
 		return pc.admitDeletePods(name, namespace)
 	case admission.Create:
-		return pc.admintCreatePods(ar)
+		return pc.AdmitCreatePods(ar)
 	default:
 		klog.Infof("Admit to %s pod[%s/%s]", operation, namespace, name)
 		return util.ARSuccess()
@@ -203,6 +151,22 @@ func (pc *PodAdmissionControl) admitDeletePods(name, namespace string) *admissio
 		return util.ARSuccess()
 	}
 
+	tcName, exist := pod.Labels[label.InstanceLabelKey]
+	if !exist {
+		klog.Errorf("pod[%s/%s] has no label: %s", namespace, name, label.InstanceLabelKey)
+		return util.ARSuccess()
+	}
+
+	tc, err := pc.operatorCli.PingcapV1alpha1().TidbClusters(namespace).Get(tcName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			klog.Infof("tc[%s/%s] had been deleted,admit to delete pod[%s/%s]", namespace, tcName, namespace, name)
+			return util.ARSuccess()
+		}
+		klog.Errorf("failed get tc[%s/%s],refuse to delete pod[%s/%s]", namespace, tcName, namespace, name)
+		return util.ARFail(err)
+	}
+
 	ownerStatefulSet, err := getOwnerStatefulSetForTiDBComponent(pod, pc.kubeCli)
 	if err != nil {
 		if errors.IsNotFound(err) || err.Error() == fmt.Sprintf(failToFindTidbComponentOwnerStatefulset, namespace, name) {
@@ -213,111 +177,48 @@ func (pc *PodAdmissionControl) admitDeletePods(name, namespace string) *admissio
 		return util.ARFail(fmt.Errorf("failed to get owner statefulset for pod[%s/%s],refuse to delete pod", namespace, name))
 	}
 
+	// Force Upgraded,Admit to Upgrade
+	if memberUtils.NeedForceUpgrade(tc) {
+		klog.Infof("tc[%s/%s] is force upgraded, admit to delete pod[%s/%s]", namespace, tcName, namespace, name)
+		return util.ARSuccess()
+	}
+
 	// When AdvancedStatefulSet is enabled, the ordinal of the last pod in the statefulset could be a non-zero number,
 	// so we let the deleting request of the last pod pass when spec.replicas <= 1 and status.replicas equals 1
 	//if *ownerStatefulSet.Spec.Replicas <= 1 && ownerStatefulSet.Status.Replicas == 1 {
-	//	klog.Infof("statefulset[%s/%s] only have one pod[%s/%s],admit to delete it.", namespace, ownerStatefulSet.Name, namespace, name)
+	//	klog.Infof("tc[%s/%s]'s statefulset only have one pod[%s/%s],admit to delete it.", namespace, tcName, namespace, name)
 	//	return util.ARSuccess()
 	//}
 
-	if l.IsPD() {
-		return pc.processAdmitDeletePDPod(pod, ownerStatefulSet)
-	} else if l.IsTiKV() {
-		return pc.processAdmitDeleteTiKVPod(pod, ownerStatefulSet)
-	} else if l.IsTiDB() {
-		return pc.admitDeleteTiDBPods(pod, ownerStatefulSet)
+	payload := &admitPayload{
+		pod:              pod,
+		tc:               tc,
+		ownerStatefulSet: ownerStatefulSet,
+	}
+
+	if tc.IsHeterogeneous() {
+		payload.pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(namespace), tc.Spec.Cluster.Name, tc.IsTLSClusterEnabled())
+	} else {
+		payload.pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(namespace), tcName, tc.IsTLSClusterEnabled())
+	}
+
+	//if l.IsPD() {
+	//	return pc.admitDeletePdPods(payload)
+	//} else if l.IsTiKV() {
+	//	return pc.admitDeleteTiKVPods(payload)
+	//} else
+	if l.IsTiDB() {
+		return pc.admitDeleteTiDBPods(payload)
 	}
 
 	klog.Infof("[%s/%s] is admit to be deleted", namespace, name)
 	return util.ARSuccess()
 }
 
-func (pc *PodAdmissionControl) processAdmitDeletePDPod(pod *core.Pod, ownerStatefulSet *apps.StatefulSet) *admission.AdmissionResponse {
-	name := pod.Name
-	namespace := pod.Namespace
-	tcName, exist := pod.Labels[label.InstanceLabelKey]
-	if !exist {
-		klog.Errorf("pod[%s/%s] has no label: %s", namespace, name, label.InstanceLabelKey)
-		return util.ARSuccess()
-	}
-
-	tc, err := pc.tcLister.TidbClusters(namespace).Get(tcName)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			klog.Infof("tc[%s/%s] had been deleted,admit to delete pod[%s/%s]", namespace, tcName, namespace, name)
-			return util.ARSuccess()
-		}
-		klog.Errorf("failed get tc[%s/%s],refuse to delete pod[%s/%s]", namespace, tcName, namespace, name)
-		return util.ARFail(err)
-	}
-	// Force Upgraded,Admit to Upgrade
-	if memberUtils.NeedForceUpgrade(tc.Annotations) {
-		klog.Infof("tc[%s/%s] is force upgraded, admit to delete pod[%s/%s]", namespace, tcName, namespace, name)
-		return util.ARSuccess()
-	}
-	payload := &admitPayload{
-		pod:              pod,
-		controller:       tc,
-		ownerStatefulSet: ownerStatefulSet,
-	}
-
-	if tc.HeterogeneousWithoutLocalPD() {
-		payload.pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(tc.Spec.Cluster.Namespace), tc.Spec.Cluster.Name, tc.IsTLSClusterEnabled())
-	} else {
-		payload.pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(namespace), tcName, tc.IsTLSClusterEnabled())
-	}
-
-	return pc.admitDeletePdPods(payload)
-}
-
-func (pc *PodAdmissionControl) processAdmitDeleteTiKVPod(pod *core.Pod, ownerStatefulSet *apps.StatefulSet) *admission.AdmissionResponse {
-	name := pod.Name
-	namespace := pod.Namespace
-	l := label.Label(pod.Labels)
-	payload := &admitPayload{
-		pod:              pod,
-		ownerStatefulSet: ownerStatefulSet,
-	}
-	controllerName, exist := pod.Labels[label.InstanceLabelKey]
-	if !exist {
-		klog.Errorf("pod[%s/%s] has no label: %s", namespace, name, label.InstanceLabelKey)
-		return util.ARSuccess()
-	}
-
-	if l.IsTidbClusterPod() {
-		tcName := controllerName
-		tc, err := pc.tcLister.TidbClusters(namespace).Get(tcName)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				klog.Infof("tc[%s/%s] had been deleted,admit to delete pod[%s/%s]", namespace, tcName, namespace, name)
-				return util.ARSuccess()
-			}
-			klog.Errorf("failed get tc[%s/%s],refuse to delete pod[%s/%s]", namespace, tcName, namespace, name)
-			return util.ARFail(err)
-		}
-		if tc.HeterogeneousWithoutLocalPD() {
-			payload.pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(tc.Spec.Cluster.Namespace), tc.Spec.Cluster.Name, tc.IsTLSClusterEnabled())
-		} else {
-			payload.pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(namespace), tcName, tc.IsTLSClusterEnabled())
-		}
-
-		payload.controller = tc
-		payload.controllerDesc = controllerDesc{
-			name:      tcName,
-			namespace: namespace,
-			kind:      v1alpha1.TiDBClusterKind,
-		}
-		return pc.admitDeleteTiKVPods(payload)
-	}
-
-	klog.Infof("tikv pod[%s/%s] is not managed by tidbcluster, admit to be deleted", namespace, name)
-	return util.ARSuccess()
-}
-
 // Webhook server receive request to create pod
 // if this pod wasn't member of tidbcluster, just let the request pass.
 // Currently we only check with tikv pod
-func (pc *PodAdmissionControl) admintCreatePods(ar *admission.AdmissionRequest) *admission.AdmissionResponse {
+func (pc *PodAdmissionControl) AdmitCreatePods(ar *admission.AdmissionRequest) *admission.AdmissionResponse {
 	pod := &core.Pod{}
 	if err := json.Unmarshal(ar.Object.Raw, pod); err != nil {
 		klog.Errorf("Could not unmarshal raw object: %v", err)
@@ -341,95 +242,34 @@ func (pc *PodAdmissionControl) admintCreatePods(ar *admission.AdmissionRequest) 
 		return util.ARSuccess()
 	}
 
-	var ownerTc *v1alpha1.TidbCluster
-	var err error
-	if l.IsTidbClusterPod() {
-		tcName, exist := pod.Labels[label.InstanceLabelKey]
-		if !exist {
+	tcName, exist := pod.Labels[label.InstanceLabelKey]
+	if !exist {
+		return util.ARSuccess()
+	}
+
+	tc, err := pc.operatorCli.PingcapV1alpha1().TidbClusters(namespace).Get(tcName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
 			return util.ARSuccess()
 		}
-		ownerTc, err = pc.tcLister.TidbClusters(namespace).Get(tcName)
-		if err != nil {
-			klog.Errorf("failed get tc[%s/%s],refuse to create pod[%s/%s],%v", namespace, tcName, namespace, name, err)
-			return util.ARFail(err)
-		}
-	} else {
-		klog.Infof("tikv pod[%s/%s] has unknown controller, admit to create", namespace, name)
+		klog.Errorf("failed get tc[%s/%s],refuse to create pod[%s/%s],%v", namespace, tcName, namespace, name, err)
+		return util.ARFail(err)
+	}
+
+	if memberUtils.NeedForceUpgrade(tc) {
+		klog.Infof("tc[%s/%s] is force upgraded, admit to create pod[%s/%s]", namespace, tcName, namespace, name)
 		return util.ARSuccess()
 	}
 
 	if l.IsTiKV() {
-
 		var pdClient pdapi.PDClient
-		if ownerTc.HeterogeneousWithoutLocalPD() {
-			pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(ownerTc.Spec.Cluster.Namespace), ownerTc.Spec.Cluster.Name, ownerTc.IsTLSClusterEnabled())
+		if tc.IsHeterogeneous() {
+			pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(namespace), tc.Spec.Cluster.Name, tc.IsTLSClusterEnabled())
 		} else {
-			pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(namespace), ownerTc.Name, ownerTc.IsTLSClusterEnabled())
+			pdClient = pc.pdControl.GetPDClient(pdapi.Namespace(namespace), tc.Name, tc.IsTLSClusterEnabled())
 		}
-		return admitCreateTiKVPod(pod, pdClient)
+		return pc.admitCreateTiKVPod(pod, tc, pdClient)
 	}
 
 	return util.ARSuccess()
-}
-
-func (a *PodAdmissionControl) initialize(cli versioned.Interface, kubeCli kubernetes.Interface, pdControl pdapi.PDControlInterface, recorder record.EventRecorder, stopCh <-chan struct{}) error {
-	a.operatorCli = cli
-	a.kubeCli = kubeCli
-	a.pdControl = pdControl
-	a.recorder = recorder
-
-	// informer factory
-	informerFactory := informers.NewSharedInformerFactoryWithOptions(cli, a.resyncDuration)
-
-	// initialize listers
-	a.tcLister = informerFactory.Pingcap().V1alpha1().TidbClusters().Lister()
-
-	// Start informer factories after all controller are initialized.
-	informerFactory.Start(stopCh)
-
-	// Wait for all started informers' cache were synced.
-	for v, synced := range informerFactory.WaitForCacheSync(wait.NeverStop) {
-		if !synced {
-			klog.Fatalf("error syncing informer for %v", v)
-		}
-	}
-
-	a.initialized = true
-	return nil
-}
-
-// Initialize implements AdmissionHook.Initialize interface. It's is called as
-// a post-start hook.
-func (a *PodAdmissionControl) Initialize(cfg *rest.Config, stopCh <-chan struct{}) error {
-	a.lock.Lock()
-	defer a.lock.Unlock()
-
-	cli, err := versioned.NewForConfig(cfg)
-	if err != nil {
-		return err
-	}
-
-	var kubeCli kubernetes.Interface
-	kubeCli, err = kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return err
-	}
-	asCli, err := asclientset.NewForConfig(cfg)
-	if err != nil {
-		return err
-	}
-
-	if features.DefaultFeatureGate.Enabled(features.AdvancedStatefulSet) {
-		// If AdvancedStatefulSet is enabled, we hijack the Kubernetes client to use
-		// AdvancedStatefulSet.
-		kubeCli = helper.NewHijackClient(kubeCli, asCli)
-	}
-
-	eventBroadcaster := record.NewBroadcaster()
-	eventBroadcaster.StartLogging(klog.Infof)
-	eventBroadcaster.StartRecordingToSink(&eventv1.EventSinkImpl{
-		Interface: eventv1.New(kubeCli.CoreV1().RESTClient()).Events("")})
-	recorder := eventBroadcaster.NewRecorder(v1alpha1.Scheme, core.EventSource{Component: "tidb-admission-controller"})
-
-	return a.initialize(cli, kubeCli, pdapi.NewDefaultPDControl(kubeCli), recorder, stopCh)
 }
