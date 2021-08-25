@@ -46,7 +46,6 @@ import (
 	"github.com/pingcap/tidb/proxy/backend"
 	proxyconfig "github.com/pingcap/tidb/proxy/config"
 	"github.com/pingcap/tidb/proxy/core/golog"
-	proxyutil "github.com/pingcap/tidb/proxy/util"
 	"github.com/pingcap/tidb/session/txninfo"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util"
@@ -326,48 +325,44 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 	for _, v := range norms {
 		var Podlist *v1.PodList
 		var Pod *v1.Pod
-		ReadyOrNot := func() (bool, error) {
-			golog.Info("Server", "ReadyOrNot", "checking tidb ready or not ", 0, "tidbtype is ", v)
+		var timeCount int
+		for {
+			timeCount++
+			time.Sleep(600 * time.Millisecond)
+			if timeCount > 200 {
+				golog.Info("server", "NewServer", "wait pod ready more than 120s",0)
+				break
+			}
+
 			Podlist, err = GetPod(cfg.ClusterName, cfg.NameSpace, v)
-			if err != nil {
-				return false, err
+			if err != nil || Podlist == nil{
+				golog.Warn("server", "NewServer", "GetPod fail or null pod",0,"the err is ",err,"tidbtype is ",v)
+				break
 			}
 			if v == backend.TiDBForTP {
 				var ProxyPodlist *v1.PodList
 				ProxyPodlist, err = GetProxyPod(cfg.ClusterName, cfg.NameSpace)
 				if err != nil || len(ProxyPodlist.Items) == 0 {
-					return false, err
+					golog.Warn("server", "NewServer", "GetProxyPod fail or null pod",0,"the err is ",err)
+					break
 				}
 				for _, v := range ProxyPodlist.Items {
 					Podlist.Items = append(Podlist.Items, v)
 				}
 			}
-			//if len(Podlist.Items) == 0 {
-			//	//CallUpCluster()
-			//	var success bool
-			//	success,err = ScaleSldb(cfg.Namespace,cfg.Name,1, false)
-			//	if success != true {
-			//		return false,err
-			//	}
-			//}
 			readyFlag := false
 			for _, v := range Podlist.Items {
 				if IsPodReady(&v) {
-					readyFlag = true
 					Pod = v.DeepCopy()
+					readyFlag = true
 					break
 				}
 			}
-			if readyFlag == false {
-				return false, nil
-			} else {
-				return true, nil
+			if readyFlag == true {
+				break
 			}
 		}
-		if err := proxyutil.Retry(5*time.Second, 60, ReadyOrNot); err != nil {
-			golog.Warn("Server", "ReadyOrNot", "the tidbs are not ready", 0)
-			return nil, err
-		}
+
 		if err = dnsCheck(Pod, &cluster.Cfg); err != nil {
 			return nil, err
 		}
@@ -388,6 +383,9 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 }
 
 func dnsCheck(pod *v1.Pod, cfg *proxyconfig.ClusterConfig) error {
+	if pod == nil {
+		return nil
+	}
 	DNSTimeout := int64(60)
 	tcName := pod.Labels[InstanceLabelKey]
 	name := pod.Name + "." + tcName + "-tidb-peer" + "." + pod.Namespace
@@ -416,6 +414,9 @@ func dnsCheck(pod *v1.Pod, cfg *proxyconfig.ClusterConfig) error {
 
 func MakeTidbs(Podlist *v1.PodList, ns string) string {
 	result := ""
+	if Podlist == nil {
+		return result
+	}
 	for _, v := range Podlist.Items {
 		podname := v.Name
 		cpuNum := ""
