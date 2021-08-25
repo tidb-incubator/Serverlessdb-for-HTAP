@@ -336,13 +336,15 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 
 			Podlist, err = GetPod(cfg.ClusterName, cfg.NameSpace, v)
 			if err != nil || Podlist == nil{
-				return nil, err
+				golog.Warn("server", "NewServer", "GetPod fail or null pod",0,"the err is ",err,"tidbtype is ",v)
+				break
 			}
 			if v == backend.TiDBForTP {
 				var ProxyPodlist *v1.PodList
 				ProxyPodlist, err = GetProxyPod(cfg.ClusterName, cfg.NameSpace)
 				if err != nil || len(ProxyPodlist.Items) == 0 {
-					return nil, err
+					golog.Warn("server", "NewServer", "GetProxyPod fail or null pod",0,"the err is ",err)
+					break
 				}
 				for _, v := range ProxyPodlist.Items {
 					Podlist.Items = append(Podlist.Items, v)
