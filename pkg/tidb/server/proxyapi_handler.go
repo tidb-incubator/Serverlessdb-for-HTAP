@@ -72,7 +72,7 @@ func GetProxyPod(clustername, namespace string) (*v1.PodList, error) {
 func GetPod(clustername, namespace, tidbType string) (*v1.PodList, error) {
 	var listOptions metav1.ListOptions
 	listOptions = metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s,%s=%s", ComponentLabelKey, "tidb", RoleInstanceLabelKey, tidbType, AllInstanceLabelKey, clustername),
+		LabelSelector: fmt.Sprintf("%s=%s,%s=%s,%s=%s", ComponentLabelKey, "tidb", RoleInstanceLabelKey, tidbType, AllInstanceLabelKey, clustername),
 	}
 
 	podList, err := KubeClient.CoreV1().Pods(namespace).List(listOptions)

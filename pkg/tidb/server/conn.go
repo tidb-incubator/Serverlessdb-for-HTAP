@@ -1855,6 +1855,7 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 	conn, err := cc.getBackendConn(cc.server.cluster)
 	defer cc.closeConn(conn, false)
 	if err != nil {
+		fmt.Errorf("get backend conn failed: %s\n", err)
 		return false, err
 	}
 

@@ -87,6 +87,7 @@ const (
 	TP string = "tp"
 	AP string = "ap"
 	BIGAP string = "large"
+	RoleInstanceLabelKey string = "bcrds.cmss.com/role"
 )
 
 var AllScalerOutData = make(map[string]*ScalerData)
@@ -1067,7 +1068,7 @@ func GetHashRate(tc *tcv1.TidbCluster) (SigleTc, error) {
 	return sigle, nil
 }
 
-func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbCluster,name string,tc *tcv1.TidbCluster,limit corev1.ResourceList) error {
+func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbCluster, name, tidbtype string,tc *tcv1.TidbCluster,limit corev1.ResourceList) error {
 	if v, ok := existClusterMap[name]; !ok {
 		newtc.Name = name
 		newtc.Namespace = tc.Namespace
@@ -1076,6 +1077,7 @@ func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbClust
 		}
 		newtc.Labels = util.New().Instance(name).BcRdsInstance(tc.Name)
 		newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
+		newtc.Spec.TiDB.Labels[RoleInstanceLabelKey] = tidbtype
 		newtc.Spec.TiDB.Replicas = 0
 		newtc.Spec.TiDB.Limits = limit
 		newtc.Spec.Version = tc.Spec.Version
@@ -1137,7 +1139,7 @@ func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[strin
 	memLimit.Add(memLimit)
 	limit[corev1.ResourceCPU] = cpuLimit
 	limit[corev1.ResourceMemory] = memLimit
-	if err:=createTC(newtc,existClusterMap,name,tc,limit);err!= nil {
+	if err:=createTC(newtc,existClusterMap,name, TP, tc,limit);err!= nil {
 		return err
 	}
 	var tcArray = []*tcv1.TidbCluster{tc,newtc}
@@ -1156,7 +1158,7 @@ func createNoExistAllTcAP(sldb *v1alpha1.ServerlessDB, existClusterMap map[strin
 	var limit = make(corev1.ResourceList)
 	limit[corev1.ResourceCPU] = limitCpu
 	limit[corev1.ResourceMemory] = limitMem
-	if err := createTC(newtc,existClusterMap,name,tc,limit);err != nil {
+	if err := createTC(newtc,existClusterMap,name, AP, tc, limit);err != nil {
 		return err
 	}
 	var tcArray = []*tcv1.TidbCluster{newtc}

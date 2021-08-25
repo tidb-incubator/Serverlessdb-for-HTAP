@@ -36,7 +36,7 @@ import (
 
 const (
 	defaultTiDBVersion          = "v5.1.1"
-	defaultSchedulerName        = "tidb-scheduler"
+	defaultSchedulerName        = "default-scheduler"
 	defaultTidbInitializerImage = "tnir/mysqlclient"
 	RoleInstanceLabelKey string = "bcrds.cmss.com/role"
 )

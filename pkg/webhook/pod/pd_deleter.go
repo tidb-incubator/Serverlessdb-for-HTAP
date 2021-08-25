@@ -18,7 +18,7 @@ import (
 	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	pdutil "github.com/pingcap/tidb-operator/pkg/manager/member"
 	operatorUtils "github.com/pingcap/tidb-operator/pkg/util"
-	"github.com/pingcap/tidb-operator/pkg/webhook/util"
+	"github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/webhook/util"
 	admission "k8s.io/api/admission/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -33,21 +33,16 @@ func (pc *PodAdmissionControl) admitDeletePdPods(payload *admitPayload) *admissi
 	if err != nil {
 		return util.ARFail(err)
 	}
-	tc, ok := payload.controller.(*v1alpha1.TidbCluster)
-	if !ok {
-		klog.V(4).Infof("pd pod[%s/%s]'s controller is not tidbcluster, admit to be deleted", namespace, name)
-		return util.ARSuccess()
-	}
 
 	isInOrdinal, err := operatorUtils.IsPodOrdinalNotExceedReplicas(payload.pod, payload.ownerStatefulSet)
 	if err != nil {
 		return util.ARFail(err)
 	}
-	tcName := tc.Name
+	tcName := payload.tc.Name
 	isUpgrading := operatorUtils.IsStatefulSetUpgrading(payload.ownerStatefulSet)
 	IsDeferDeleting := IsPodWithPDDeferDeletingAnnotations(payload.pod)
 
-	isMember, err := IsPodInPdMembers(tc, payload.pod, payload.pdClient)
+	isMember, err := IsPodInPdMembers(payload.tc, payload.pod, payload.pdClient)
 	if err != nil {
 		return util.ARFail(err)
 	}
@@ -74,7 +69,7 @@ func (pc *PodAdmissionControl) admitDeletePdPods(payload *admitPayload) *admissi
 	// check the pd pods which have been upgraded before were all health
 	if isUpgrading {
 		klog.Infof("receive delete pd pod[%s/%s] of tc[%s/%s] is upgrading, make sure former pd upgraded status was health", namespace, name, namespace, tcName)
-		err = checkFormerPDPodStatus(pc.kubeCli, payload.pdClient, tc, payload.ownerStatefulSet, ordinal)
+		err = checkFormerPDPodStatus(pc.kubeCli, payload.pdClient, payload.tc, payload.ownerStatefulSet, ordinal)
 		if err != nil {
 			return util.ARFail(err)
 		}
@@ -85,7 +80,7 @@ func (pc *PodAdmissionControl) admitDeletePdPods(payload *admitPayload) *admissi
 	}
 
 	if isUpgrading {
-		pc.recorder.Event(tc, corev1.EventTypeNormal, pdUpgradeReason, podDeleteEventMessage(name))
+		pc.recorder.Event(payload.tc, corev1.EventTypeNormal, pdUpgradeReason, podDeleteEventMessage(name))
 	}
 
 	klog.Infof("pod[%s/%s] is not pd-leader,admit to delete", namespace, name)
@@ -106,12 +101,7 @@ func (pc *PodAdmissionControl) admitDeleteNonPDMemberPod(payload *admitPayload) 
 	if err != nil {
 		return util.ARFail(err)
 	}
-	tc, ok := payload.controller.(*v1alpha1.TidbCluster)
-	if !ok {
-		klog.V(4).Infof("pd pod[%s/%s]'s controller is not tidbcluster", namespace, name)
-		return util.ARSuccess()
-	}
-	tcName := tc.Name
+	tcName := payload.tc.Name
 	IsDeferDeleting := IsPodWithPDDeferDeletingAnnotations(payload.pod)
 
 	// check whether this pod has been ensured wouldn't be a member in pd cluster
@@ -121,23 +111,23 @@ func (pc *PodAdmissionControl) admitDeleteNonPDMemberPod(payload *admitPayload) 
 		// it can be error that pd scale in From 4 to 3,the pvc was edited successfully and
 		// the pd member was fail to deleted. If the pd scale was recover to 4 at that time,
 		// it would be existed an pd-3 instance with its deferDeleting label Annotations PVC.
-		// And the pvc can be deleted during upgrading if we use create pod admission-webhook in future.
+		// And the pvc can be deleted during upgrading if we use create pod webhook in future.
 		if !isInOrdinal {
 			pvcName := operatorUtils.OrdinalPVCName(v1alpha1.PDMemberType, payload.ownerStatefulSet.Name, ordinal)
 			pvc, err := pc.kubeCli.CoreV1().PersistentVolumeClaims(namespace).Get(pvcName, meta.GetOptions{})
 			if err != nil {
 				if errors.IsNotFound(err) {
-					pc.recorder.Event(tc, corev1.EventTypeNormal, pdScaleInReason, podDeleteEventMessage(name))
+					pc.recorder.Event(payload.tc, corev1.EventTypeNormal, pdScaleInReason, podDeleteEventMessage(name))
 					return util.ARSuccess()
 				}
 				return util.ARFail(err)
 			}
-			err = addDeferDeletingToPVC(pvc, pc.kubeCli)
+			err = addDeferDeletingToPVC(pvc, pc.kubeCli, payload.tc)
 			if err != nil {
 				klog.Infof("tc[%s/%s]'s pod[%s/%s] failed to update pvc,%v", namespace, tcName, namespace, name, err)
 				return util.ARFail(err)
 			}
-			pc.recorder.Event(tc, corev1.EventTypeNormal, pdScaleInReason, podDeleteEventMessage(name))
+			pc.recorder.Event(payload.tc, corev1.EventTypeNormal, pdScaleInReason, podDeleteEventMessage(name))
 		}
 		klog.Infof("pd pod[%s/%s] is not member of tc[%s/%s],admit to delete", namespace, name, namespace, tcName)
 		return util.ARSuccess()
@@ -161,12 +151,7 @@ func (pc *PodAdmissionControl) admitDeleteExceedReplicasPDPod(payload *admitPayl
 
 	name := payload.pod.Name
 	namespace := payload.pod.Namespace
-	tc, ok := payload.controller.(*v1alpha1.TidbCluster)
-	if !ok {
-		klog.V(4).Infof("pd pod[%s/%s]'s controller is not tidbcluster", namespace, name)
-		return util.ARSuccess()
-	}
-	tcName := tc.Name
+	tcName := payload.tc.Name
 
 	if isPdLeader {
 		return pc.transferPDLeader(payload)
@@ -190,41 +175,21 @@ func (pc *PodAdmissionControl) admitDeleteExceedReplicasPDPod(payload *admitPayl
 
 // this pod is a pd leader, we should transfer pd leader to other pd pod before it gets deleted before.
 func (pc *PodAdmissionControl) transferPDLeader(payload *admitPayload) *admission.AdmissionResponse {
+
 	name := payload.pod.Name
 	namespace := payload.pod.Namespace
 	ordinal, err := operatorUtils.GetOrdinalFromPodName(name)
 	if err != nil {
 		return util.ARFail(err)
 	}
-	tc, ok := payload.controller.(*v1alpha1.TidbCluster)
-	if !ok {
-		klog.V(4).Infof("pd pod[%s/%s]'s controller is not tidbcluster", namespace, name)
-		return util.ARSuccess()
-	}
-	tcName := tc.Name
-
+	tcName := payload.tc.Name
 	var targetName string
-	if tc.PDStsActualReplicas() > 1 {
-		lastOrdinal := helper.GetMaxPodOrdinal(*payload.ownerStatefulSet.Spec.Replicas, payload.ownerStatefulSet)
-		targetOrdinal := lastOrdinal
-		if ordinal == lastOrdinal {
-			targetOrdinal = helper.GetMinPodOrdinal(*payload.ownerStatefulSet.Spec.Replicas, payload.ownerStatefulSet)
-		}
-		targetName = pdutil.PdName(tcName, targetOrdinal, namespace, tc.Spec.ClusterDomain)
-		if _, exist := tc.Status.PD.Members[targetName]; !exist {
-			targetName = pdutil.PdPodName(tcName, targetOrdinal)
-		}
-	} else if len(tc.Status.PD.PeerMembers) > 0 {
-		for _, member := range tc.Status.PD.PeerMembers {
-			if member.Name != pdutil.PdName(tcName, ordinal, tc.Namespace, tc.Spec.ClusterDomain) && member.Health {
-				targetName = member.Name
-				break
-			}
-		}
-	}
 
-	if len(targetName) == 0 {
-		return util.ARSuccess()
+	lastOrdinal := helper.GetMaxPodOrdinal(*payload.ownerStatefulSet.Spec.Replicas, payload.ownerStatefulSet)
+	if ordinal == lastOrdinal {
+		targetName = pdutil.PdPodName(tcName, helper.GetMinPodOrdinal(*payload.ownerStatefulSet.Spec.Replicas, payload.ownerStatefulSet))
+	} else {
+		targetName = pdutil.PdPodName(tcName, lastOrdinal)
 	}
 
 	err = payload.pdClient.TransferPDLeader(targetName)

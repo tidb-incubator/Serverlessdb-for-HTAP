@@ -121,6 +121,9 @@ func (cluster *Cluster) checkTidbs() {
 		pool.RUnlock()
 
 		for i := 0; i < len(Tidbs); i++ {
+			if Tidbs[i].Self {
+				continue
+			}
 			if err := Tidbs[i].Ping(); err != nil {
 				golog.Error("Node", "checkTidb", "Ping", 0, "db.Addr", Tidbs[i].Addr(), "error", err.Error())
 			} else {

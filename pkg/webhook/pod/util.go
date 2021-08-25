@@ -51,7 +51,7 @@ func IsPodInPdMembers(tc *v1alpha1.TidbCluster, pod *core.Pod, pdClient pdapi.PD
 // pd pod who would be deleted by statefulset controller
 // we add annotations to this pvc and delete it when we scale out the pd replicas
 // for the new pd pod need new pvc
-func addDeferDeletingToPVC(pvc *core.PersistentVolumeClaim, kubeCli kubernetes.Interface) error {
+func addDeferDeletingToPVC(pvc *core.PersistentVolumeClaim, kubeCli kubernetes.Interface, tc *v1alpha1.TidbCluster) error {
 	if pvc.Annotations == nil {
 		pvc.Annotations = map[string]string{}
 	}
@@ -90,7 +90,7 @@ func checkFormerPDPodStatus(kubeCli kubernetes.Interface, pdClient pdapi.PDClien
 			return fmt.Errorf("tidbcluster: [%s/%s]'s pd pod: [%s] has no label: %s", namespace, tcName, podName, apps.ControllerRevisionHashLabelKey)
 		}
 
-		healthy, existed := membersHealthMap[memberUtil.PdName(tcName, i, tc.Namespace, tc.Spec.ClusterDomain)]
+		healthy, existed := membersHealthMap[podName]
 		if revision != tc.Status.PD.StatefulSet.UpdateRevision || !existed || !healthy {
 			return fmt.Errorf("tidbcluster: [%s/%s]'s pd upgraded pod: [%s] is not ready", namespace, tcName, podName)
 		}

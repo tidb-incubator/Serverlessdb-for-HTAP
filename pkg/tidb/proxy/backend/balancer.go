@@ -66,29 +66,15 @@ func (cluster *Pool) InitBalancer() {
 
 	gcd := Gcd(sws)
 
-	for _, weight := range sws {
-		sum += weight / gcd
+	for i, v := range sws {
+		weight := v / gcd
+		sum += weight
+		sws[i] = weight
 	}
-
 	cluster.RoundRobinQ = make([]int, 0, sum)
-	for index, weight := range sws {
-		for j := 0; j < weight/gcd; j++ {
-			cluster.RoundRobinQ = append(cluster.RoundRobinQ, index)
-		}
-	}
-
 	//order by SWRR algorithm.
 	if 1 < len(cluster.TidbsWeights) {
-		cluster.RoundRobinQ = order(cluster.RoundRobinQ)
-		fmt.Println("cluster roundrobin is ", cluster.RoundRobinQ)
-		//r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		//for i := 0; i < sum; i++ {
-		//	x := r.Intn(sum)
-		//	temp := cluster.RoundRobinQ[x]
-		//	other := sum % (x + 1)
-		//	cluster.RoundRobinQ[x] = cluster.RoundRobinQ[other]
-		//	cluster.RoundRobinQ[other] = temp
-		//}
+		cluster.RoundRobinQ = order(sws)
 	}
 }
 
@@ -190,6 +176,7 @@ func (cluster *Pool) GetNextDB(indicator string) (*DB, error) {
 		for i := 0; i < len(cluster.RoundRobinQ); i++ {
 			index = cluster.RoundRobinQ[cluster.LastTidbIndex]
 			if len(cluster.Tidbs) <= index {
+				fmt.Println("index is ", index)
 				return nil, errors.ErrNoDatabase
 			}
 			db = cluster.Tidbs[index]
@@ -230,7 +217,7 @@ func GetBigCostDB(addr string, user string, password string, dbName string) (*DB
 }
 
 func ScaleTempTidb(ns, clus string, hashrate float32, needStart bool, needStopAddr string) (*scalepb.TempClusterReply, error) {
-	serviceName := "he3db-scaler-operator.he3db-admin.svc:8028"
+	serviceName := "scale-operator.sldb-admin.svc:8028"
 
 	conn, err := grpc.Dial(serviceName, grpc.WithInsecure())
 	if err != nil {

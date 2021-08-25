@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pingcap/tidb-operator/pkg/apis/pingcap/v1alpha1"
 	"github.com/pingcap/tidb-operator/pkg/pdapi"
 	"github.com/pingcap/tidb-operator/pkg/webhook/util"
 	admission "k8s.io/api/admission/v1beta1"
@@ -25,11 +26,10 @@ import (
 	"k8s.io/klog"
 )
 
-func admitCreateTiKVPod(pod *core.Pod, pdClient pdapi.PDClient) *admission.AdmissionResponse {
+func (pc *PodAdmissionControl) admitCreateTiKVPod(pod *core.Pod, tc *v1alpha1.TidbCluster, pdClient pdapi.PDClient) *admission.AdmissionResponse {
 	name := pod.Name
 	namespace := pod.Namespace
 
-	// always success if tikv is not bootstrapped
 	stores, err := pdClient.GetStores()
 	if err != nil {
 		if pdapi.IsTiKVNotBootstrappedError(err) {
@@ -38,7 +38,6 @@ func admitCreateTiKVPod(pod *core.Pod, pdClient pdapi.PDClient) *admission.Admis
 		klog.Infof("Failed to get stores during pod [%s/%s] creation, error: %v", namespace, name, err)
 		return util.ARFail(err)
 	}
-
 	evictLeaderSchedulers, err := pdClient.GetEvictLeaderSchedulers()
 	if err != nil {
 		if pdapi.IsTiKVNotBootstrappedError(err) {

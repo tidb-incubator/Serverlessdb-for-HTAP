@@ -36,13 +36,14 @@ RUN GO111MODULE=on GOPROXY=https://goproxy.cn go mod download
 
 # Build real binaries
 COPY . .
-RUN make
+#RUN make
+RUN GO15VENDOREXPERIMENT="1" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '-s -w ' -o bin/tidb-server tidb-server/main.go
 
 # Executable image
-FROM alpine
+FROM alpine:3.11.2
 
 RUN apk add --no-cache \
-    curl
+    curl mysql-client
 
 COPY --from=builder /go/src/github.com/pingcap/tidb/bin/tidb-server /tidb-server
 COPY --from=builder /usr/local/bin/dumb-init /usr/local/bin/dumb-init

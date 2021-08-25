@@ -34,9 +34,8 @@ endif
 	docker build --tag "${DOCKER_REPO}/serverlessdb-operator:${IMAGE_TAG}" images/sldb-operator
 	docker build --tag "${DOCKER_REPO}/lvmplugin:${IMAGE_TAG}" images/he3local/lvmplugin
 	docker build --tag "${DOCKER_REPO}/lvm-scheduler:${IMAGE_TAG}" images/he3local/scheduler
-	docker build --tag "${DOCKER_REPO}/webhook:${IMAGE_TAG}" images/webhook
 
-build: scale-operator sldb-operator he3local webhook
+build: scale-operator sldb-operator he3local
 
 scale-operator:
 	$(GO_BUILD) -ldflags '$(LDFLAGS)' -o images/scale-operator/bin/scale-operator cmd/scale-operator/main.go
@@ -51,9 +50,6 @@ lvmplugin:
 
 scheduler:
 	$(GO_BUILD) -ldflags '$(LDFLAGS)' -o images/he3local/scheduler/bin/lvm-scheduler cmd/he3local/scheduler/main.go
-
-webhook:
-	$(GO_BUILD) -ldflags '$(LDFLAGS)' -o images/admission-webhook/bin/tidb-admission-webhook cmd/admission-webhook/main.go
 
 ifeq ($(NO_BUILD),y)
 scale-docker:
@@ -89,12 +85,3 @@ else
 scheduler-docker: scheduler
 endif
 	docker build --tag "${DOCKER_REPO}/lvm-scheduler:${IMAGE_TAG}" images/he3local/scheduler
-
-
-ifeq ($(NO_BUILD),y)
-webhook-docker:
-	@echo "NO_BUILD=y, skip build for $@"
-else
-webhook-docker: webhook
-endif
-	docker build --tag "${DOCKER_REPO}/webhook:${IMAGE_TAG}" images/admission-webhook

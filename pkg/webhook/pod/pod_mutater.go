@@ -22,7 +22,7 @@ import (
 	"github.com/pingcap/tidb-operator/pkg/features"
 	"github.com/pingcap/tidb-operator/pkg/label"
 	operatorUtils "github.com/pingcap/tidb-operator/pkg/util"
-	"github.com/pingcap/tidb-operator/pkg/webhook/util"
+	"github.com/tidb-incubator/Serverlessdb-for-HTAP/pkg/webhook/util"
 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -30,12 +30,7 @@ import (
 	"k8s.io/klog"
 )
 
-// mutatePod mutates the pod by setting hotRegion label if the pod is created by AutoScaling
 func (pc *PodAdmissionControl) mutatePod(ar *admissionv1beta1.AdmissionRequest) *admissionv1beta1.AdmissionResponse {
-	if !features.DefaultFeatureGate.Enabled(features.AutoScaling) {
-		return util.ARSuccess()
-	}
-
 	pod := &corev1.Pod{}
 	if err := json.Unmarshal(ar.Object.Raw, pod); err != nil {
 		return util.ARFail(err)
@@ -62,8 +57,11 @@ func (pc *PodAdmissionControl) mutatePod(ar *admissionv1beta1.AdmissionRequest) 
 		return util.ARFail(err)
 	}
 
-	if err := pc.tikvHotRegionSchedule(tc, pod); err != nil {
-		return util.ARFail(err)
+	if features.DefaultFeatureGate.Enabled(features.AutoScaling) {
+		err := pc.tikvHotRegionSchedule(tc, pod)
+		if err != nil {
+			return util.ARFail(err)
+		}
 	}
 
 	patch, err := util.CreateJsonPatch(original, pod)

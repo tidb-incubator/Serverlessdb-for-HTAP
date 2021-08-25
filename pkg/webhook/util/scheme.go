@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	// scheme is the runtime.Scheme to which all api types used by admission-webhook are registered.
+	// scheme is the runtime.Scheme to which all api types used by webhook are registered.
 	scheme = runtime.NewScheme()
 
 	// Codecs provides access to encoding and decoding for the scheme.
