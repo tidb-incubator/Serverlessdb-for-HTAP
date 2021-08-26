@@ -77,7 +77,7 @@ func (m *sldbPhaseMemberManager) Sync(db *v1alpha1.ServerlessDB) error {
 			return err
 		} else {
 			if completed {
-				db.Status.Phase = v1alpha1.PhaseRecovering
+				db.Status.Phase = v1alpha1.PhaseAvailable
 				return nil
 			} else {
 				db.Status.Phase = v1alpha1.PhaseCreating
@@ -107,9 +107,6 @@ func (m *sldbPhaseMemberManager) Sync(db *v1alpha1.ServerlessDB) error {
 		}
 	}
 
-	if db.Status.Phase == v1alpha1.PhaseRecovering {
-		return nil
-	}
 
 	if available, _ := m.IsServerlessDBAvailable(db); available {
 		db.Status.Phase = v1alpha1.PhaseAvailable
@@ -134,13 +131,13 @@ func (m *sldbPhaseMemberManager) IsServerlessDBCreatComplete(db *v1alpha1.Server
 	if util.GetServerlessDBCondition(db.Status, v1alpha1.TiDBInitial) != nil {
 		return false, nil
 	}
-
+	return true, nil
 	// he3proxy healthy
-	deploy, err := m.deps.DeploymentLister.Deployments(db.Namespace).Get(util.GetProxyResourceName(db.Name))
-	if err != nil {
-		return false, fmt.Errorf("fail to get Deployments %s for cluster %s/%s health check, error: %s", db.Name, db.Namespace, db.Name, err)
-	}
-	return deploy.Status.ReadyReplicas >= deploy.Status.Replicas, nil
+	//deploy, err := m.deps.DeploymentLister.Deployments(db.Namespace).Get(util.GetProxyResourceName(db.Name))
+	//if err != nil {
+	//	return false, fmt.Errorf("fail to get Deployments %s for cluster %s/%s health check, error: %s", db.Name, db.Namespace, db.Name, err)
+	//}
+	//return deploy.Status.ReadyReplicas >= deploy.Status.Replicas, nil
 }
 
 // isTiDBServerAllAvailable, Determine whether sldb is available

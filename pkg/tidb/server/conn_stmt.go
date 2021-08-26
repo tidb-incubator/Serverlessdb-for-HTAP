@@ -191,6 +191,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		pos += nullBitmapLen
 
 		// new param bound flag
+		//fmt.Printf("dats[%d]=%d,len(datt)=%d \n", pos, data[pos], len(data))
 		if data[pos] == 1 {
 			pos++
 			if len(data) < (pos + (numParams << 1)) {
@@ -206,6 +207,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		} else {
 			paramValues = data[pos+1:]
 		}
+		//fmt.Println("data is ", data, " para type is ", len(paramTypes), paramTypes)
 
 
 			err = parseExecArgs(cc.ctx.GetSessionVars().StmtCtx, args, stmt.BoundParams(), nullBitmaps, stmt.GetParamsType(), paramValues)
@@ -262,7 +264,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 
 
 	if !conn.IsProxySelf() {
-		err = cc.bindStmtArgs(tidbtext, argsproxy,stmt.BoundParams(),nullBitmaps, paramTypes, paramValues);
+		err = cc.bindStmtArgs(tidbtext, argsproxy,stmt.BoundParams(),nullBitmaps, stmt.GetParamsType(), paramValues);
 	//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
 		err = cc.handlePrepare(ctx,conn, preparedStmt, tidbtext.sql, argsproxy)
 		return err

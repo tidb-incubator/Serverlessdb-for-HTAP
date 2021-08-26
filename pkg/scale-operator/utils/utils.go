@@ -1000,7 +1000,7 @@ type TClus struct {
 }
 
 func GetTcArrayTP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster, error) {
-	selector := labels.NewSelector().Add(*util.LabelEq(util.InstanceLabelKey, sldb.Name))
+	selector := labels.NewSelector().Add(*util.LabelEq(util.BcRdsInstanceLabelKey, sldb.Name)).Add(*util.LabelEq(util.RoleInstanceLabelKey, TP))
 	list,err := sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).List(selector)
 	if err != nil {
 		return list,err
@@ -1009,14 +1009,14 @@ func GetTcArrayTP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster, error) {
 	for _,v := range list {
 		if v.Name == sldb.Name+"-"+TP  ||
 			v.Name == sldb.Name {
-			tpTcArr = append(tpTcArr,v)
+			tpTcArr = append(tpTcArr,v.DeepCopy())
 		}
 	}
 	return tpTcArr,nil
 }
 
 func GetTcArrayAP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster,*tcv1.TidbCluster,error) {
-	selector := labels.NewSelector().Add(*util.LabelEq(util.InstanceLabelKey, sldb.Name))
+	selector := labels.NewSelector().Add(*util.LabelEq(util.BcRdsInstanceLabelKey, sldb.Name)).Add(*util.LabelEq(util.RoleInstanceLabelKey, AP))
 	list,err := sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).List(selector)
 	if err != nil {
 		return list,nil,err
@@ -1025,7 +1025,7 @@ func GetTcArrayAP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster,*tcv1.TidbCl
 	var tc *tcv1.TidbCluster
 	for _,v := range list {
 		if v.Name == sldb.Name+"-"+AP {
-			apTcArr = append(apTcArr,v)
+			apTcArr = append(apTcArr,v.DeepCopy())
 		} else if v.Name == sldb.Name {
 			tc = v.DeepCopy()
 		}
@@ -1080,6 +1080,8 @@ func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbClust
 		newtc.Spec.TiDB.Labels[RoleInstanceLabelKey] = tidbtype
 		if tidbtype == AP {
 			newtc.Spec.TiDB.Replicas = 1
+		} else {
+			newtc.Spec.TiDB.Replicas = 0
 		}
 		newtc.Spec.TiDB.Limits = limit
 		newtc.Spec.Version = tc.Spec.Version
@@ -1135,8 +1137,8 @@ func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[strin
 	var name string
 	name = tc.Name +"-"+TP
 	var limit = make(corev1.ResourceList)
-	cpuLimit := tc.Spec.TiDB.Limits[corev1.ResourceMemory].DeepCopy()
-	memLimit := tc.Spec.TiDB.Limits[corev1.ResourceCPU].DeepCopy()
+	cpuLimit := tc.Spec.TiDB.Limits[corev1.ResourceCPU].DeepCopy()
+	memLimit := tc.Spec.TiDB.Limits[corev1.ResourceMemory].DeepCopy()
 	cpuLimit.Add(cpuLimit)
 	memLimit.Add(memLimit)
 	limit[corev1.ResourceCPU] = cpuLimit
@@ -1213,6 +1215,7 @@ func GetTidbStatus(tcArr *TClus) tcv1.MemberPhase {
 	var tidbStatus = tcv1.NormalPhase
 	for _, v := range tcArr.OldTc {
 		if reflect.DeepEqual(v.Tc.Status, tcv1.TidbClusterStatus{}) {
+			fmt.Println("tc is ", v.Tc.Name, " status is ", v.Tc.Status)
 			tidbStatus = tcv1.MemberPhase("noStatus")
 			break
 		} else {
