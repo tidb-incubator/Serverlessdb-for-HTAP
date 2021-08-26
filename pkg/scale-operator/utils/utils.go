@@ -1078,7 +1078,9 @@ func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbClust
 		newtc.Labels = util.New().Instance(name).BcRdsInstance(tc.Name)
 		newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
 		newtc.Spec.TiDB.Labels[RoleInstanceLabelKey] = tidbtype
-		newtc.Spec.TiDB.Replicas = 0
+		if tidbtype == AP {
+			newtc.Spec.TiDB.Replicas = 1
+		}
 		newtc.Spec.TiDB.Limits = limit
 		newtc.Spec.Version = tc.Spec.Version
 		newtc.Spec.TiDB.Service = nil
