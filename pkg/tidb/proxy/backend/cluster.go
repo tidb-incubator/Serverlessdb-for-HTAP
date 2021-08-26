@@ -43,7 +43,8 @@ type Cluster struct {
 	ProxyNode *Proxy
 	DownAfterNoAlive time.Duration
 
-	Online bool
+	Online        bool
+	MaxCostPerSql int64
 }
 
 
@@ -79,6 +80,7 @@ func (cluster *Cluster) CheckCluster() {
 
 
 func (cluster *Cluster) GetTidbConn(cost int64) (*BackendConn, error) {
+
 	indicate := "qps"
 	db, err := cluster.GetNextTidb(indicate, cost)
 	if err != nil {

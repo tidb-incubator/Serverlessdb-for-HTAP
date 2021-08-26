@@ -43,7 +43,7 @@ func (sl *Serverless) RestServerless(tidbType string) {
 	sl.multiScales[tidbType].resetscalein()
 }
 
-var CostOneCore float64 = 1000
+var CostOneCore float64 = 100000
 var ScalerClient scalepb.ScaleClient
 var ClusterName string
 var NameSpace string

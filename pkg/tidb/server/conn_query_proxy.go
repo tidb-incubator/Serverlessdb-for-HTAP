@@ -41,9 +41,14 @@ func (c *clientConn) handleDMLForProxy(ctx context.Context,conn *backend.Backend
 
 func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.BackendConn, err error) {
 	sessionVars := c.ctx.GetSessionVars()
+	cost := int64(sessionVars.Proxy.Cost)
+	if cost > cluster.MaxCostPerSql {
+		atomic.StoreInt64(&cluster.MaxCostPerSql, cost)
+	}
+	fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql)
 	if !sessionVars.InTxn() {
 		//fmt.Println("no tran")
-		co, err = cluster.GetTidbConn(int64(sessionVars.Proxy.Cost))
+		co, err = cluster.GetTidbConn(cost)
 		if err != nil {
 			return
 		}
@@ -51,23 +56,28 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 		co = c.txConn
 
 		if co == nil {
-			if co, err = cluster.GetTidbConn(int64(sessionVars.Proxy.Cost)); err != nil {
+			if co, err = cluster.GetTidbConn(cost); err != nil {
 				return
 			}
-			if !sessionVars.IsAutocommit() {
-				if err = co.SetAutoCommit(0); err != nil {
-					return
+			if !co.IsProxySelf() {
+				if !sessionVars.IsAutocommit() {
+					if err = co.SetAutoCommit(0); err != nil {
+						return
+					}
+				} else {
+					if err = co.Begin(); err != nil {
+						return
+					}
 				}
-			} else {
-				if err = co.Begin(); err != nil {
-					return
-				}
+				co.SetNoDelayTrue()
 			}
-
-			co.SetNoDelayTrue()
 			c.txConn = co
-
+		} else {
+			if co.IsProxySelf() {
+				atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+			}
 		}
+
 	}
 
 	if !co.IsProxySelf() {
@@ -94,6 +104,10 @@ func (c *clientConn) executeInNode(conn *backend.BackendConn, sql string, args [
 
 func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	sessionVars := c.ctx.GetSessionVars()
+	fmt.Println("session in txn is ", sessionVars.InTxn())
+	if conn != nil {
+		fmt.Println("conn info is ", conn)
+	}
 	if sessionVars.InTxn() {
 		return
 	}

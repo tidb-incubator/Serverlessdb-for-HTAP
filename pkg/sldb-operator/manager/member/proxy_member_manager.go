@@ -91,7 +91,7 @@ func (m *proxyMemberManager) getNewProxyTc(db *v1alpha1.ServerlessDB) (*pcv1alph
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      tcName,
 			Namespace: db.Namespace,
-			Labels:    util.LabelsForServerlessDB(db.Name),
+			Labels:    util.New().Instance(tcName).BcRdsInstance(db.Name),
 		},
 		Spec: pcv1alpha1.TidbClusterSpec{
 			//Version:         defaultTiDBVersion,

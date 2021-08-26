@@ -76,6 +76,7 @@ func (cluster *Pool) InitBalancer() {
 	if 1 < len(cluster.TidbsWeights) {
 		cluster.RoundRobinQ = order(sws)
 	}
+	fmt.Println("cluster RoundRobinQ is ", cluster.RoundRobinQ, cluster.TidbsWeights)
 }
 
 type peer struct {
@@ -116,13 +117,14 @@ func order(tidbsWeights []int) []int {
 
 func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error) {
 	//Distinguish SQL types based on costs
+	var db *DB
+	var err error
 	switch {
-	case cost <= 100:
-		var db *DB
-		var err error
+	case cost <= 10000:
 		//Predicate SQL is belong to TP type
 		pool := cluster.BackendPools[TiDBForTP]
-		if cluster.ProxyNode.IsPureCompute && len(pool.Tidbs) == 1 {
+		//if cluster.ProxyNode.IsPureCompute && len(pool.Tidbs) == 1 {
+		if len(pool.Tidbs) == 1 {
 			db = pool.Tidbs[0]
 		} else {
 			db, err = pool.GetNextDB(lbIndicator)
@@ -138,7 +140,7 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 		}
 		return db, err
 
-	case cost > 10000:
+	case cost > 100000:
 		//Predicate SQL is belong to Big AP type
 		//invoke grpc api of starting a new pod to handle this request.
 		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, DefaultBigSize, false, "bigcost")
@@ -151,10 +153,17 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 		//choose AP tidb pools
 		pool := cluster.BackendPools[TiDBForAP]
 		atomic.AddInt64(&pool.Costs, cost)
-		return pool.GetNextDB(lbIndicator)
+		if len(pool.Tidbs) == 1 {
+			db = pool.Tidbs[0]
+		} else {
+			db, err = pool.GetNextDB(lbIndicator)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return db, err
 	}
 
-	return nil, errors.ErrAllDatabaseDown
 }
 
 func (cluster *Pool) GetNextDB(indicator string) (*DB, error) {
@@ -163,6 +172,7 @@ func (cluster *Pool) GetNextDB(indicator string) (*DB, error) {
 		var index int
 		queueLen := len(cluster.RoundRobinQ)
 		if queueLen == 0 {
+			fmt.Println("queueLen is 0, cluster tidb is ", cluster.Tidbs, cluster.RoundRobinQ, cluster.TidbsWeights)
 			return nil, errors.ErrNoDatabase
 		}
 		if queueLen == 1 {

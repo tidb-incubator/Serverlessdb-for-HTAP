@@ -325,7 +325,8 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 
 	var norms = []string{backend.TiDBForTP, backend.TiDBForAP}
 	for _, v := range norms {
-		var Podlist *v1.PodList
+		Podlist := &v1.PodList{}
+		Podlist.Items = make([]v1.Pod, 0)
 		var Pod *v1.Pod
 		var timeCount int
 		for {
@@ -336,23 +337,26 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 				break
 			}
 
-			Podlist, err = GetPod(cfg.ClusterName, cfg.NameSpace, v)
-			if err != nil || Podlist == nil{
-				golog.Warn("server", "NewServer", "GetPod fail or null pod",0,"the err is ",err,"tidbtype is ",v)
-				break
-			}
 			if v == backend.TiDBForTP {
-				var ProxyPodlist *v1.PodList
-				ProxyPodlist, err = GetProxyPod(cfg.ClusterName, cfg.NameSpace)
+				ProxyPodlist, err := GetProxyPod(cfg.ClusterName, cfg.NameSpace)
 				if err != nil || len(ProxyPodlist.Items) == 0 {
 					golog.Warn("server", "NewServer", "GetProxyPod fail or null pod",0,"the err is ",err)
 					break
 				}
-				for _, v := range ProxyPodlist.Items {
-
-					Podlist.Items = append(Podlist.Items, v)
+				for _, pod := range ProxyPodlist.Items {
+					Podlist.Items = append(Podlist.Items, pod)
 				}
 			}
+
+			NormalPodlist, err := GetPod(cfg.ClusterName, cfg.NameSpace, v)
+			if err != nil || len(NormalPodlist.Items) == 0 {
+				golog.Warn("server", "NewServer", "GetPod fail or null pod",0,"the err is ",err,"tidbtype is ",v)
+				break
+			}
+			for _, pod := range NormalPodlist.Items {
+				Podlist.Items = append(Podlist.Items, pod)
+			}
+
 			readyFlag := false
 			for _, v := range Podlist.Items {
 				golog.Info("Server", "ReadyOrNot", fmt.Sprint("podname is %s", v.Name), 0)
@@ -433,7 +437,7 @@ func MakeTidbs(Podlist *v1.PodList, ns string) string {
 		cpuNum = getFloatCpu(cpuNum)
 		tcName := v.Labels[InstanceLabelKey]
 		if v.Labels[RoleInstanceLabelKey]== "proxy" {
-			result = result + "self" + "@" + cpuNum
+			result = result + "self" + "@" + cpuNum + ","
 		} else {
 			result = result + podname + "." + tcName + "-tidb-peer" + "." + ns + ":" + TidbPort + "@" + cpuNum + ","
 		}
@@ -529,10 +533,10 @@ func (s *Server) CheckProxyRole() {
 				}
 			}
 			//todo: delete other tp type node when proxy node can deal all tp sql.
-			if !s.cluster.ProxyNode.IsPureCompute {
-				s.cluster.ProxyNode.IsPureCompute = true
-			}
-			//fmt.Println("proxy is as pure compute node")
+			//if !s.cluster.ProxyNode.IsPureCompute {
+			//	s.cluster.ProxyNode.IsPureCompute = true
+			//}
+			fmt.Println("proxy is as pure compute node, tp cost is ", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql)
 
 
 		case costs > 100000:
@@ -544,10 +548,10 @@ func (s *Server) CheckProxyRole() {
 				tppool.InitBalancerAfterDeleteTidb("self")
 				s.cluster.ProxyNode.ProxyAsCompute = false
 			}
-			if s.cluster.ProxyNode.IsPureCompute {
-				s.cluster.ProxyNode.IsPureCompute = false
-			}
-			//fmt.Println("proxy is as pure proxy node")
+			//if s.cluster.ProxyNode.IsPureCompute {
+			//	s.cluster.ProxyNode.IsPureCompute = false
+			//}
+			fmt.Println("proxy is as pure proxy node, tp cost is ", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql)
 		default:
 			//proxy service as a complex node which can compute as a tp type tidb and proxy request to others tidbs.
 			if !s.cluster.ProxyNode.ProxyAsCompute {
@@ -557,10 +561,10 @@ func (s *Server) CheckProxyRole() {
 					fmt.Println("add proxy into tp pools success when proxy as a complex compute node.")
 				}
 			}
-			if s.cluster.ProxyNode.IsPureCompute {
-				s.cluster.ProxyNode.IsPureCompute = false
-			}
-			//fmt.Println("proxy is as complex compute node")
+			//if s.cluster.ProxyNode.IsPureCompute {
+			//	s.cluster.ProxyNode.IsPureCompute = false
+			//}
+			fmt.Println("proxy is as complex compute node, tp cost is", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql)
 		}
 		time.Sleep(1 * time.Second)
 	}
