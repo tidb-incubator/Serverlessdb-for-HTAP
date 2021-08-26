@@ -1068,8 +1068,10 @@ func GetHashRate(tc *tcv1.TidbCluster) (SigleTc, error) {
 	return sigle, nil
 }
 
-func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbCluster, name, tidbtype string,tc *tcv1.TidbCluster,limit corev1.ResourceList) error {
+func createTC(existClusterMap map[string]*tcv1.TidbCluster, name, tidbtype string,tc *tcv1.TidbCluster,limit corev1.ResourceList) (*tcv1.TidbCluster,error) {
+	var newtc *tcv1.TidbCluster
 	if v, ok := existClusterMap[name]; !ok {
+		newtc = &tcv1.TidbCluster{}
 		newtc.Name = name
 		newtc.Namespace = tc.Namespace
 		if newtc.Labels == nil {
@@ -1104,17 +1106,17 @@ func createTC(newtc *tcv1.TidbCluster,existClusterMap map[string]*tcv1.TidbClust
 				newtc, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Get(name, metav1.GetOptions{})
 				if err != nil {
 					klog.Errorf("[%s/%s] get TidbClusters failed", tc.Namespace, name)
-					return err
+					return nil,err
 				}
 			} else {
 				klog.Errorf("[%s/%s] create TidbClusters failed", tc.Namespace, name)
-				return err
+				return nil,err
 			}
 		}
 	} else {
-		newtc = v
+		newtc = v.DeepCopy()
 	}
-	return nil
+	return newtc,nil
 }
 
 func getMutilTC(tcArray []*tcv1.TidbCluster,tcArr *TClus) error {
@@ -1133,7 +1135,8 @@ func getMutilTC(tcArray []*tcv1.TidbCluster,tcArr *TClus) error {
 }
 
 func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster, tcArr *TClus, tc *tcv1.TidbCluster) error {
-	var newtc = &tcv1.TidbCluster{}
+	var newtc *tcv1.TidbCluster
+	var err error
 	var name string
 	name = tc.Name +"-"+TP
 	var limit = make(corev1.ResourceList)
@@ -1143,7 +1146,7 @@ func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[strin
 	memLimit.Add(memLimit)
 	limit[corev1.ResourceCPU] = cpuLimit
 	limit[corev1.ResourceMemory] = memLimit
-	if err:=createTC(newtc,existClusterMap,name, TP, tc,limit);err!= nil {
+	if newtc,err =createTC(existClusterMap,name, TP, tc,limit);err!= nil {
 		return err
 	}
 	var tcArray = []*tcv1.TidbCluster{tc,newtc}
@@ -1151,18 +1154,19 @@ func createNoExistAllTcTP(sldb *v1alpha1.ServerlessDB, existClusterMap map[strin
 }
 
 func createNoExistAllTcAP(sldb *v1alpha1.ServerlessDB, existClusterMap map[string]*tcv1.TidbCluster,tcArr *TClus,tc *tcv1.TidbCluster) error {
+	var newtc *tcv1.TidbCluster
+	var err error
 	memstr := "1Gi"
 	newMem, _ := resource.ParseQuantity(memstr)
 	var name string
 	name = tc.Name +"-" + AP
-	var newtc = &tcv1.TidbCluster{}
 	limitMem := GetMemory(NormalHashrate3,newMem)
 	cpustr := fmt.Sprintf("%g", NormalHashrate3)
 	limitCpu, _ := resource.ParseQuantity(cpustr)
 	var limit = make(corev1.ResourceList)
 	limit[corev1.ResourceCPU] = limitCpu
 	limit[corev1.ResourceMemory] = limitMem
-	if err := createTC(newtc,existClusterMap,name, AP, tc, limit);err != nil {
+	if newtc,err = createTC(existClusterMap,name, AP, tc, limit);err != nil {
 		return err
 	}
 	var tcArray = []*tcv1.TidbCluster{newtc}
