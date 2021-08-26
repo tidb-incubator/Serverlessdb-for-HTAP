@@ -82,6 +82,13 @@ func (am *AutoScalerManager) ScalerBaseOnMidWareAP(sldb *sldbv1.ServerlessDB) (b
 			tclus.NewHashRate = v.ScalerNeedCore
 		}
 	}
+	// AP have at least one replicas,promit expand only tclus.NewHashRate greater than
+	//one HashRate of replicas
+	if tclus.OldTc[0].Replicas == 1 {
+		if tclus.NewHashRate <= tclus.OldHashRate {
+			return true,nil
+		}
+	}
 	if err := am.SyncTidbClusterReplicas(sldb, tclus, v1alpha1.TiDBMemberType); err != nil {
 		return false,err
 	}
