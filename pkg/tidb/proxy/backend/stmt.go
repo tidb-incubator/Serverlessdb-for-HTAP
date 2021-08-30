@@ -43,8 +43,8 @@ func (s *Stmt) GetId() uint32 {
 	return s.id
 }
 
-func (s *Stmt) Execute(args ...interface{}) (*mysql.Result, error) {
-	if err := s.write(args...); err != nil {
+func (s *Stmt) Execute(paramtype []byte,args ...interface{}) (*mysql.Result, error) {
+	if err := s.write(paramtype,args...); err != nil {
 		return nil, err
 	}
 
@@ -60,7 +60,7 @@ func (s *Stmt) Close() error {
 }
 
 
-func (s *Stmt) write(args ...interface{}) error {
+func (s *Stmt) write(paramtype []byte,args ...interface{}) error {
 	paramsNum := s.params
 
 	if len(args) != paramsNum {
@@ -140,7 +140,7 @@ func (s *Stmt) write(args ...interface{}) error {
 			paramTypes[i<<1] = mysql.MYSQL_TYPE_STRING
 			paramValues[i] = append(mysql.PutLengthEncodedInt(uint64(len(v))), v...)
 		case []byte:
-			paramTypes[i<<1] = mysql.MYSQL_TYPE_STRING
+			paramTypes[i<<1] = paramtype[i<<1]
 			paramValues[i] = append(mysql.PutLengthEncodedInt(uint64(len(v))), v...)
 		default:
 			return fmt.Errorf("invalid argument type %T", args[i])

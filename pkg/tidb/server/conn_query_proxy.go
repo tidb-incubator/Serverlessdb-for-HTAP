@@ -14,7 +14,7 @@ func (c *clientConn) handleDMLForProxy(ctx context.Context,conn *backend.Backend
 	sessionVars := c.ctx.GetSessionVars()
 	var rs *mysql.Result
 
-	rs, err := c.executeInNode(conn, stmt.Text(), nil)
+	rs, err := c.executeInNode(conn, stmt.Text(), nil,nil)
 	if err != nil {
 		return  err
 	}
@@ -91,9 +91,9 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 	return
 }
 
-func (c *clientConn) executeInNode(conn *backend.BackendConn, sql string, args []interface{}) (*mysql.Result, error) {
+func (c *clientConn) executeInNode(conn *backend.BackendConn, sql string,paramtype []byte,args []interface{}) (*mysql.Result, error) {
 
-	r, err := conn.Execute(sql, args...)
+	r, err := conn.Execute(sql,paramtype,args...)
 
 	if err != nil {
 		return nil, err
