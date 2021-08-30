@@ -110,9 +110,9 @@ func (s *Server) startHTTPServer() {
 	router := mux.NewRouter()
 
 	// proxy api
-	router.HandleFunc("/api/v1/clusters/sldb/Tidbs", s.AddTidb).Name("addTidbs")
-	router.HandleFunc("/api/v1/clusters/tidbs", s.DeleteOneTidb).Name("deleteTidbs")
-	router.HandleFunc("/api/v1/clusters/status", s.GetClustersStatus).Name("getClustersStatus")
+	router.HandleFunc("/api/v1/clusters/sldb/Tidbs", s.AddTidb).Name("addTidbs").Methods("POST")
+	router.HandleFunc("/api/v1/clusters/deltidb", s.DeleteOneTidb).Name("deleteTidbs").Methods("POST")
+	router.HandleFunc("/api/v1/clusters/status", s.GetClustersStatus).Name("getClustersStatus").Methods("GET")
 
 	router.HandleFunc("/status", s.handleStatus).Name("Status")
 	// HTTP path for prometheus.
