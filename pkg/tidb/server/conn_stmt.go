@@ -266,7 +266,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 	if !conn.IsProxySelf() {
 		err = cc.bindStmtArgs(tidbtext, argsproxy,stmt.BoundParams(),nullBitmaps, stmt.GetParamsType(), paramValues);
 	//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
-		err = cc.handlePrepare(ctx,conn, preparedStmt, tidbtext.sql, argsproxy)
+		err = cc.handlePrepare(ctx,conn, preparedStmt, tidbtext.sql,stmt.GetParamsType(),argsproxy)
 		return err
 	} else {
 		ctx = context.WithValue(ctx, execdetails.StmtExecDetailKey, &execdetails.StmtExecDetails{})

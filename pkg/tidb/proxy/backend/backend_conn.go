@@ -383,7 +383,7 @@ func (c *Conn) GetAddr() string {
 	return c.addr
 }
 
-func (c *Conn) Execute(command string, args ...interface{}) (*mysql.Result, error) {
+func (c *Conn) Execute(command string,paramtype []byte,args ...interface{}) (*mysql.Result, error) {
 	if len(args) == 0 {
 		return c.exec(command)
 	} else {
@@ -391,7 +391,7 @@ func (c *Conn) Execute(command string, args ...interface{}) (*mysql.Result, erro
 			return nil, err
 		} else {
 			var r *mysql.Result
-			r, err = s.Execute(args...)
+			r, err = s.Execute(paramtype,args...)
 			s.Close()
 
 			return r, err
