@@ -29,8 +29,10 @@ func (c *clientConn) handleBegin() error {
 
 	//fmt.Printf("begin %+v \n",c.txConn)
 	if co := c.txConn; co != nil {
-		if err := co.Begin(); err != nil {
-			return err
+		if !co.IsProxySelf() {
+			if err := co.Begin(); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -59,14 +61,15 @@ func (c *clientConn) commit() (err error) {
 //	c.status &= ^mysql.SERVER_STATUS_IN_TRANS
   c.ctx.GetSessionVars().SetInTxn(false)
 	if co := c.txConn; co != nil {
-		if e := co.Commit(); e != nil {
-			err = e
+		if !co.IsProxySelf() {
+			if e := co.Commit(); e != nil {
+				err = e
+			}
+			co.SetNoDelayFlase()
 		}
 
-		co.SetNoDelayFlase()
 		co.Close()
 	}
-
 		c.txConn = nil
 	return
 }
@@ -90,10 +93,13 @@ func (c *clientConn) rollback() (err error) {
 	c.ctx.GetSessionVars().SetInTxn(false)
    //fmt.Printf("rollback is %+v",c.txConn)
 	if co := c.txConn; co != nil {
-		if e := co.Rollback(); e != nil {
-			err = e
+		if !co.IsProxySelf() {
+			if e := co.Rollback(); e != nil {
+				err = e
+			}
+			co.SetNoDelayFlase()
 		}
-		co.SetNoDelayFlase()
+
 		co.Close()
 
 	}

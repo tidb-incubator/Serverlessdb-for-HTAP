@@ -112,7 +112,7 @@ func (s *Server) startHTTPServer() {
 	// proxy api
 	router.HandleFunc("/api/v1/clusters/sldb/Tidbs", s.AddTidb).Name("addTidbs").Methods("POST")
 	router.HandleFunc("/api/v1/clusters/deltidb", s.DeleteOneTidb).Name("deleteTidbs").Methods("POST")
-	router.HandleFunc("/api/v1/clusters/status", s.GetClustersStatus).Name("getClustersStatus").Methods("GET")
+	router.HandleFunc("/api/v1/clusters/status/{tidbtype}", s.GetClustersStatus).Name("getClustersStatus").Methods("GET")
 
 	router.HandleFunc("/status", s.handleStatus).Name("Status")
 	// HTTP path for prometheus.
@@ -436,7 +436,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, req *http.Request) {
 func (s *Server) AddTidb(w http.ResponseWriter, req *http.Request) {
 	args := struct {
 		Cluster   string `json:"cluster"`
-		NameSpace string `json:"ns"`
+		NameSpace string `json:"namespace"`
 		TidbType  string `json:"tidbtype"`
 	}{}
 	err := json.NewDecoder(req.Body).Decode(&args)
@@ -488,24 +488,19 @@ type DBStatus struct {
 	PushConnCount   int64  `json:"push_conn_count"`
 	PopConnCount    int64  `json:"pop_conn_count"`
 	UsingConnsCount int64  `json:"using_conn_count"`
+	Self            bool   `json:"self"`
+	Dbtype          string `json:"dbtype"`
 }
 
 func (s *Server) GetClustersStatus(w http.ResponseWriter, req *http.Request) {
-	args := struct {
-		TidbType string `json:"tidbtype"`
-	}{}
-	err := json.NewDecoder(req.Body).Decode(&args)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		logutil.BgLogger().Error("encode Request failed", zap.Error(err))
-		return
-	}
+	para := mux.Vars(req)
+	tidbType := para["tidbtype"]
 	var TidbStatus DBStatus
 	dbStatus := make([]DBStatus, 0, 1)
 	cluster := s.GetAllClusters()
 
 	//get Tidbs status
-	for _, Tidb := range cluster.BackendPools[args.TidbType].Tidbs {
+	for _, Tidb := range cluster.BackendPools[tidbType].Tidbs {
 		//get Tidb counter
 		idleConns, cacheConns, pushConnCount, popConnCount, usingConnCount := Tidb.ConnCount()
 
@@ -520,6 +515,8 @@ func (s *Server) GetClustersStatus(w http.ResponseWriter, req *http.Request) {
 		TidbStatus.PushConnCount = pushConnCount
 		TidbStatus.PopConnCount = popConnCount
 		TidbStatus.UsingConnsCount = usingConnCount
+		TidbStatus.Self = Tidb.Self
+		TidbStatus.Dbtype = Tidb.DbType()
 
 		dbStatus = append(dbStatus, TidbStatus)
 	}

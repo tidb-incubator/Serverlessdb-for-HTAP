@@ -177,7 +177,10 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 	}
 	cpu := resource.MustParse(fmt.Sprintf("%v", hashrate/utils.HashratePerTidb))
 	for i, tc := range tclist.Items {
-		klog.Infof("[%s/%s]ScaleCluster check tc", tc.Namespace, tc.Name)
+		if tc.Spec.TiDB.Labels[RoleInstanceLabelKey] != scaletype {
+			continue
+		}
+		klog.Infof("[%s/%s]ScaleCluster check tc, scale type is %s.", tc.Namespace, tc.Name, scaletype)
 		if hashrate == 0 {
 			if i == 0 {
 				utils.CleanHashrate(&tc,scaletype)

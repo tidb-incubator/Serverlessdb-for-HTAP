@@ -20,7 +20,7 @@ type AutoScalerClientApi struct{}
 
 func tryPostAddTidb(url string, name string, namesp string,scalertype string) error {
 	contentType := "application/json"
-	bobyPattern := `{"cluster":"%s","namespace":"%s","scaletype":"%s"}`
+	bobyPattern := `{"cluster":"%s","namespace":"%s","tidbtype":"%s"}`
 	boby := fmt.Sprintf(bobyPattern, name, namesp,scalertype)
 	postTidb := strings.NewReader(boby)
 	resp, err := http.Post(url, contentType, postTidb)

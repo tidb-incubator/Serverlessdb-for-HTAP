@@ -53,7 +53,7 @@ import (
 	"time"
 )
 
-const ScaleAddr = "scaler-operator.sldb-admin.svc:8028"
+const ScaleAddr = "scale-operator.sldb-admin.svc:8028"
 
 func parseNullTermString(b []byte) (str []byte, remain []byte) {
 	off := bytes.IndexByte(b, 0)

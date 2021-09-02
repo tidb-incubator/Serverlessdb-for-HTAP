@@ -123,15 +123,18 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 	case cost <= 10000:
 		//Predicate SQL is belong to TP type
 		pool := cluster.BackendPools[TiDBForTP]
+		pool.Lock()
 		//if cluster.ProxyNode.IsPureCompute && len(pool.Tidbs) == 1 {
 		if len(pool.Tidbs) == 1 {
 			db = pool.Tidbs[0]
 		} else {
 			db, err = pool.GetNextDB(lbIndicator)
 			if err != nil {
+				pool.Unlock()
 				return nil, err
 			}
 		}
+		pool.Unlock()
 
 		if db.Self {
 			atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
@@ -140,7 +143,7 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 		}
 		return db, err
 
-	case cost > 100000:
+	case cost > 10000000:
 		//Predicate SQL is belong to Big AP type
 		//invoke grpc api of starting a new pod to handle this request.
 		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, DefaultBigSize, false, "bigcost")
@@ -152,15 +155,18 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 	default:
 		//choose AP tidb pools
 		pool := cluster.BackendPools[TiDBForAP]
-		atomic.AddInt64(&pool.Costs, cost)
+		pool.Lock()
 		if len(pool.Tidbs) == 1 {
 			db = pool.Tidbs[0]
 		} else {
 			db, err = pool.GetNextDB(lbIndicator)
 			if err != nil {
+				pool.Unlock()
 				return nil, err
 			}
 		}
+		pool.Unlock()
+		atomic.AddInt64(&pool.Costs, cost)
 		return db, err
 	}
 

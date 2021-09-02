@@ -67,11 +67,9 @@ type TiDBStatement struct {
 	paramsType  []byte
 	ctx         *TiDBContext
 	rs          ResultSet
-	s          ast.StmtNode
+	s           ast.StmtNode
 	sql         string
 }
-
-
 
 // ID implements PreparedStatement ID method.
 func (ts *TiDBStatement) ID() int {
@@ -94,12 +92,11 @@ func (ts *TiDBStatement) Execute(ctx context.Context, args []types.Datum) (rs Re
 	return
 }
 
-
 // Execute implements PreparedStatement Execute method.
-func ExecuteForProxy(ctx context.Context,tidbstmt PreparedStatement ,st *executor.ExecStmt) (rs ResultSet, err error) {
-	ts,_:=tidbstmt.(*TiDBStatement)
-//	tidbRecordset, err := ts.ctx.ExecutePreparedStmt(ctx, ts.id, args)
-	tidbRecordset, err :=session.PreparedStmtExecRunForProxy(ctx,ts.ctx.Session,st)
+func ExecuteForProxy(ctx context.Context, tidbstmt PreparedStatement, st *executor.ExecStmt) (rs ResultSet, err error) {
+	ts, _ := tidbstmt.(*TiDBStatement)
+	//	tidbRecordset, err := ts.ctx.ExecutePreparedStmt(ctx, ts.id, args)
+	tidbRecordset, err := session.PreparedStmtExecRunForProxy(ctx, ts.ctx.Session, st)
 
 	if err != nil {
 		return nil, err
@@ -256,16 +253,16 @@ func (tc *TiDBContext) ExecuteStmt(ctx context.Context, stmt ast.StmtNode) (Resu
 		recordSet: rs,
 	}, nil
 }
+
 //*************************
 func (tc *TiDBContext) GotStmtCostForProxy(ctx context.Context, stmt ast.StmtNode) (sqlexec.Statement, error) {
 
-	return session.ExecuteStmtForProxy(ctx,tc.Session,stmt)
+	return session.ExecuteStmtForProxy(ctx, tc.Session, stmt)
 }
-
 
 func (tc *TiDBContext) ExecStmtForProxy(ctx context.Context, stmt sqlexec.Statement) (ResultSet, error) {
 
-	rs, err := session.RunStmtForProxy(ctx,tc.Session,stmt)
+	rs, err := session.RunStmtForProxy(ctx, tc.Session, stmt)
 	if err != nil {
 		return nil, err
 	}
@@ -277,11 +274,7 @@ func (tc *TiDBContext) ExecStmtForProxy(ctx context.Context, stmt sqlexec.Statem
 	}, nil
 }
 
-
-
 //********************
-
-
 
 // Close implements QueryCtx Close method.
 func (tc *TiDBContext) Close() error {
@@ -322,12 +315,21 @@ func (tc *TiDBContext) Prepare(sql string) (statement PreparedStatement, columns
 	if err != nil {
 		return
 	}
+	stmtNodes, err := tc.Session.Parse(context.Background(), sql)
+	if err != nil {
+		return
+	}
+	var stmtNode ast.StmtNode
+	if len(stmtNodes) >= 1 {
+		stmtNode = stmtNodes[0]
+	}
 	stmt := &TiDBStatement{
 		sql:         sql,
 		id:          stmtID,
 		numParams:   paramCount,
 		boundParams: make([][]byte, paramCount),
 		ctx:         tc,
+		s:           stmtNode,
 	}
 	statement = stmt
 	columns = make([]*ColumnInfo, len(fields))

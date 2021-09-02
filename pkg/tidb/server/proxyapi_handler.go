@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/core/golog"
+	"github.com/pingcap/tidb/proxy/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	"os/exec"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"strconv"
 	"strings"
 )
@@ -25,9 +24,7 @@ const (
 	TidbPort             string = "4000"
 )
 
-var (
-	KubeClient *kubernetes.Clientset
-)
+
 
 type NewTidb struct {
 	Cluster  string `json:"cluster"`
@@ -61,7 +58,7 @@ func GetProxyPod(clustername, namespace string) (*v1.PodList, error) {
 	listOptions = metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s,%s=%s,%s=%s", ComponentLabelKey, "tidb", RoleInstanceLabelKey, "proxy", AllInstanceLabelKey, clustername),
 	}
-	podList, err := KubeClient.CoreV1().Pods(namespace).List(listOptions)
+	podList, err := util.KubeClient.CoreV1().Pods(namespace).List(listOptions)
 	if err != nil {
 		golog.Error("server", "GetPod", "get pod fail", 0, "error", err)
 		return nil, err
@@ -75,7 +72,7 @@ func GetPod(clustername, namespace, tidbType string) (*v1.PodList, error) {
 		LabelSelector: fmt.Sprintf("%s=%s,%s=%s,%s=%s", ComponentLabelKey, "tidb", RoleInstanceLabelKey, tidbType, AllInstanceLabelKey, clustername),
 	}
 
-	podList, err := KubeClient.CoreV1().Pods(namespace).List(listOptions)
+	podList, err := util.KubeClient.CoreV1().Pods(namespace).List(listOptions)
 	if err != nil {
 		golog.Error("server", "GetPod", "get pod fail", 0, "error", err)
 		return nil, err
@@ -163,7 +160,7 @@ func (s *Server) NewOne(podList *v1.PodList, tidbType string) []*NewTidb {
 				cpuNum := ""
 				for _, v1 := range pod.Spec.Containers {
 					if v1.Name == "tidb" {
-						cpuNum = v1.Resources.Limits.Cpu().String()
+						cpuNum = v1.Resources.Requests.Cpu().String()
 					}
 				}
 				cpuNum = getFloatCpu(cpuNum)
@@ -204,14 +201,3 @@ func (s *Server) FindNewTidb(clusterName, ns, tidbType string) error {
 	return nil
 }
 
-func init() {
-
-	// Create the kubernetes clientset
-	k8sConfig := ctrl.GetConfigOrDie()
-	//k8sConfig, err := clientcmd.BuildConfigFromFlags(viper.GetString("https://10.154.0.150:6443"), viper.GetString("./configs"))
-	//if err != nil {
-	//	klog.Errorf("Failed to get kubeConfig! Error is %v", err)
-	//}
-
-	KubeClient, _ = kubernetes.NewForConfig(k8sConfig)
-}

@@ -1000,7 +1000,7 @@ type TClus struct {
 }
 
 func GetTcArrayTP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster, error) {
-	selector := labels.NewSelector().Add(*util.LabelEq(util.BcRdsInstanceLabelKey, sldb.Name)).Add(*util.LabelEq(util.RoleInstanceLabelKey, TP))
+	selector := labels.NewSelector().Add(*util.LabelEq(util.BcRdsInstanceLabelKey, sldb.Name))
 	list,err := sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).List(selector)
 	if err != nil {
 		return list,err
@@ -1016,7 +1016,7 @@ func GetTcArrayTP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster, error) {
 }
 
 func GetTcArrayAP(sldb *v1alpha1.ServerlessDB) ([]*tcv1.TidbCluster,*tcv1.TidbCluster,error) {
-	selector := labels.NewSelector().Add(*util.LabelEq(util.BcRdsInstanceLabelKey, sldb.Name)).Add(*util.LabelEq(util.RoleInstanceLabelKey, AP))
+	selector := labels.NewSelector().Add(*util.LabelEq(util.BcRdsInstanceLabelKey, sldb.Name))
 	list,err := sldbcluster.SldbClient.PingCapLister.TidbClusters(sldb.Namespace).List(selector)
 	if err != nil {
 		return list,nil,err
@@ -1665,10 +1665,10 @@ func GetNewAnnoAndReplias(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbCluster, old
 	return nil
 }
 
-func getMidWareTidb(name, namesp string) ([]DBStatus, error) {
+func getMidWareTidb(name, namesp, scalertype string) ([]DBStatus, error) {
 	webclient := webClient.NewAutoScalerClientApi()
 	//url := "http://" + name + "-" + "he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/status"
-	url := "http://" + name + "-proxy" + "." + namesp + ".svc.10080/api/v1/clusters/status"
+	url := "http://" + name + "-proxy-tidb" + "." + namesp + ".svc:10080/api/v1/clusters/status/" + scalertype
 	podInfo, err := webclient.GetAllTidb(url)
 	if err != nil {
 		klog.Errorf("[%s/%s] SyncReplicasToMidWare GetAllTidb failed %v", namesp, name, err)
@@ -1688,7 +1688,7 @@ func getMidWareTidb(name, namesp string) ([]DBStatus, error) {
 func getMidwareAndScalerSyncStatus(podList []*corev1.Pod, name, namesp string,scalertype string) ([]string, bool, error) {
 	var needAddTidb []string
 	var needRegister bool
-	podDBArr, err := getMidWareTidb(name, namesp)
+	podDBArr, err := getMidWareTidb(name, namesp, scalertype)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1734,14 +1734,14 @@ func postAddTidb(podList []*corev1.Pod, name, namesp string,scalertype string) e
 	}
 	if needRegister == true {
 		//postUrl := "http://" + name + "-he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/sldb/Tidbs"
-		postUrl := "http://" + name + "-proxy" + "." + namesp + ".svc:10080/api/v1/clusters/sldb/Tidbs"
+		postUrl := "http://" + name + "-proxy-tidb" + "." + namesp + ".svc:10080/api/v1/clusters/sldb/Tidbs"
 		var err error
 		for {
-			err = webclient.PostAddTidb(postUrl, name, namesp,scalertype)
+			err = webclient.PostAddTidb(postUrl, name, namesp, scalertype)
 			if err != nil {
 				klog.Errorf("[%s/%s] SyncReplicasToMidWare PostAddTidb failed %v", namesp, name, err)
 			}
-			podDBArr, err := getMidWareTidb(name, namesp)
+			podDBArr, err := getMidWareTidb(name, namesp, scalertype)
 			if err != nil {
 				klog.Errorf("[%s/%s] SyncReplicasToMidWare getMidWareTidb failed %v", namesp, name, err)
 			}
@@ -1792,7 +1792,7 @@ func SyncReplicasToMidWare(tcArr *TClus,scalertype string) error {
 		klog.Errorf("[%s/%s] SyncReplicasToMidWare GetAllPodArray failed %v", namesp, name, err)
 		return err
 	}
-	podDBArr, err := getMidWareTidb(name, namesp)
+	podDBArr, err := getMidWareTidb(name, namesp, scalertype)
 	if err != nil {
 		return err
 	}
@@ -1830,7 +1830,7 @@ func SyncReplicasToMidWare(tcArr *TClus,scalertype string) error {
 	webclient := webClient.NewAutoScalerClientApi()
 	for _, addr := range reducePod {
 		//postUrl := "http://" + name + "-he3proxy" + "." + namesp + ".svc:9797/api/v1/clusters/tidbs"
-		postUrl := "http://" + name + "-proxy" + "." + namesp + ".svc:10080/api/v1/clusters/tidbs"
+		postUrl := "http://" + name + "-proxy-tidb" + "." + namesp + ".svc:10080/api/v1/clusters/tidbs"
 		if err := webclient.DeleteErrorTidb(postUrl, name, namesp, addr); err != nil {
 			klog.Errorf("[%s/%s] SyncReplicasToMidWare DeleteErrorTidb failed %v", namesp, name, err)
 			return err
