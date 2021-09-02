@@ -15,6 +15,9 @@
 package backend
 
 import (
+	"github.com/pingcap/tidb/server"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strconv"
 	"strings"
 	"sync"
@@ -149,8 +152,19 @@ func (cluster *Cluster) checkTidbs() {
 			}
 		}
 	}
+}
 
-
+func GetOnePod(podName,namespace string) *v1.Pod {
+	pod, err := KubeClient.CoreV1().Pods(namespace).Get(podName,metav1.GetOptions{})
+	if err != nil {
+		return nil
+	}
+	if v,ok := pod.Labels["predelete"];ok {
+		if v == "true" {
+			return nil
+		}
+	}
+	return pod
 }
 
 func (cluster *Cluster) AddTidb(addr, tidbType string) error {
@@ -167,6 +181,16 @@ func (cluster *Cluster) AddTidb(addr, tidbType string) error {
 		if strings.Split(v.addr, WeightSplit)[0] == strings.Split(addr, WeightSplit)[0] {
 			return errors.ErrTidbExist
 		}
+	}
+	//lock check pod status,predelete filter
+	podArr := strings.Split(addr,".")
+	podName := podArr[0]
+	podNs := podArr[2]
+	nsArr := strings.Split(podNs,":")
+	ns := nsArr[0]
+	pod := GetOnePod(podName,ns)
+	if pod == nil {
+		return nil
 	}
 	addrAndWeight := strings.Split(addr, WeightSplit)
 	if len(addrAndWeight) == 2 {
