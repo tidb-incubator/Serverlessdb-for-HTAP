@@ -918,7 +918,7 @@ func PendingHander(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbCluster, oldTc *tcv
 func ResourceProblemCheck(sldb *v1alpha1.ServerlessDB, tcArr *TClus, sldbType tcv1.MemberType) (bool, error) {
 	key := string(sldbType) + "-resource-problem"
 	if tcArr.NewHashRate < tcArr.OldHashRate ||
-		tcArr.NewTc[0].Tc.Spec.TiKV.Replicas < tcArr.OldTc[0].Tc.Spec.TiKV.Replicas {
+		sldbType == tcv1.TiKVMemberType && tcArr.NewTc[0].Tc.Spec.TiKV.Replicas < tcArr.OldTc[0].Tc.Spec.TiKV.Replicas {
 		if tcArr.NewTc[0].Tc.Annotations == nil {
 			tcArr.NewTc[0].Tc.Annotations = map[string]string{}
 		}

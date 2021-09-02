@@ -317,11 +317,21 @@ func tikvScalerOutAndIn(tcArr *utils.TClus,sldb *sldbv1.ServerlessDB,sldbType v1
 }
 
 func (am *AutoScalerManager) SyncTidbClusterReplicas(sldb *sldbv1.ServerlessDB, tcArr *utils.TClus,sldbType v1alpha1.MemberType) error {
-	if utils.FEqual(tcArr.NewHashRate,tcArr.OldHashRate) == true && tcArr.NewTc[0].Tc.Spec.TiKV.Replicas == tcArr.OldTc[0].Tc.Spec.TiKV.Replicas {
-		return nil
+	var oldRep,newRep int32
+	if utils.FEqual(tcArr.NewHashRate,tcArr.OldHashRate) == true  {
+		if sldbType == v1alpha1.TiKVMemberType {
+			if tcArr.NewTc[0].Tc.Spec.TiKV.Replicas == tcArr.OldTc[0].Tc.Spec.TiKV.Replicas {
+				return nil
+			} else {
+				newRep = tcArr.NewTc[0].Tc.Spec.TiKV.Replicas
+				oldRep = tcArr.OldTc[0].Tc.Spec.TiKV.Replicas
+			}
+		} else {
+			return nil
+		}
 	}
 	klog.Infof("[%s/%s] NewHashRate %v,OldHashRate %v,newTiKV.Replicas %v,oldTiKV.Replicas %v sldbType %v",sldb.Namespace,sldb.Name,
-		tcArr.NewHashRate, tcArr.OldHashRate,tcArr.NewTc[0].Tc.Spec.TiKV.Replicas,tcArr.OldTc[0].Tc.Spec.TiKV.Replicas,sldbType)
+		tcArr.NewHashRate, tcArr.OldHashRate,newRep,oldRep,sldbType)
 	if utils.FSmaller(tcArr.NewHashRate,tcArr.OldHashRate) == true {
 		//klog.Infof("[%s/%s] SyncTidbClusterReplicas scale in %v,%v",sldb.Namespace,sldb.Name,tcArr.NewHashRate,tcArr.OldHashRate)
 		if err := utils.RecalculateScaleIn(sldb,tcArr,true);err != nil {
@@ -333,14 +343,16 @@ func (am *AutoScalerManager) SyncTidbClusterReplicas(sldb *sldbv1.ServerlessDB, 
 		}
 	}
 	//tikv == tikv_max_replias expand pvc
-	explanFlag,err:=TikvPvcExpand(&tcArr.NewTc[0].Tc,&tcArr.OldTc[0].Tc,sldbType)
-	if err != nil {
-		klog.Infof("[%s/%s] TikvPvcExpand %v sldbType %v",sldb.Namespace,sldb.Name,err,sldbType)
-		return err
-	}
-	if explanFlag == true {
-		klog.Infof("[%s/%s] TikvPvcExpand success  sldbType %v",sldb.Namespace,sldb.Name,sldbType)
-		return nil
+	if sldbType == v1alpha1.TiKVMemberType {
+		explanFlag, err := TikvPvcExpand(&tcArr.NewTc[0].Tc, &tcArr.OldTc[0].Tc, sldbType)
+		if err != nil {
+			klog.Infof("[%s/%s] TikvPvcExpand %v sldbType %v", sldb.Namespace, sldb.Name, err, sldbType)
+			return err
+		}
+		if explanFlag == true {
+			klog.Infof("[%s/%s] TikvPvcExpand success  sldbType %v", sldb.Namespace, sldb.Name, sldbType)
+			return nil
+		}
 	}
 	//scaler in no resouce problem
 	promit, err := utils.ResourceProblemCheck(sldb, tcArr, sldbType)
