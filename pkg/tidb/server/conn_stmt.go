@@ -180,7 +180,6 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 
 	argsproxy := make([]interface{}, numParams)
 
-
 	tidbtext, _ := stmt.(*TiDBStatement)
 	if numParams > 0 {
 		nullBitmapLen := (numParams + 7) >> 3
@@ -209,51 +208,39 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		}
 		//fmt.Println("data is ", data, " para type is ", len(paramTypes), paramTypes)
 
-
-			err = parseExecArgs(cc.ctx.GetSessionVars().StmtCtx, args, stmt.BoundParams(), nullBitmaps, stmt.GetParamsType(), paramValues)
+		err = parseExecArgs(cc.ctx.GetSessionVars().StmtCtx, args, stmt.BoundParams(), nullBitmaps, stmt.GetParamsType(), paramValues)
 
 		stmt.Reset()
 		if err != nil {
 			return errors.Annotate(err, cc.preparedStmt2String(stmtID))
 		}
 	}
-
-
-
 	switch tidbtext.s.(type) {
-
 	case *ast.BeginStmt:
-		return  cc.handleBegin()
+		return cc.handleBegin()
 	case *ast.CommitStmt:
 		return cc.handleCommit()
 	case *ast.RollbackStmt:
 		return cc.handleRollback()
 	}
 
-
-	cc.ctx.GetSessionVars().Proxy.SQLtext=tidbtext.sql
-	cc.ctx.GetSessionVars().Proxy.Cost=0
-	defer func(){
-		cc.ctx.GetSessionVars().Proxy.SQLtext=""
-		cc.ctx.GetSessionVars().Proxy.Cost=0
+	cc.ctx.GetSessionVars().Proxy.SQLtext = tidbtext.sql
+	cc.ctx.GetSessionVars().Proxy.Cost = 0
+	defer func() {
+		cc.ctx.GetSessionVars().Proxy.SQLtext = ""
+		cc.ctx.GetSessionVars().Proxy.Cost = 0
 	}()
-
-
-
-
-
-
 
 	preparedStmt := cc.ctx.GetSessionVars().PreparedStmts[stmtID].(*plannercore.CachedPrepareStmt)
 
-		/*	switch preparedStmt.PreparedAst.Stmt.(type) {
-			case *ast.BeginStmt,*ast.CommitStmt,*ast.RollbackStmt:
+	/*	switch preparedStmt.PreparedAst.Stmt.(type) {
+		case *ast.BeginStmt,*ast.CommitStmt,*ast.RollbackStmt:
 
-			}
-*/
+		}
+	*/
 
-	est,_:=session.ExecutePreparedStmtForProxy(ctx,tidbtext.ctx.Session,stmtID,args)
-   fmt.Printf("prepare sql is %s,cost is %f\n",est.Text,tidbtext.ctx.GetSessionVars().Proxy.Cost)
+	est, _ := session.ExecutePreparedStmtForProxy(ctx, tidbtext.ctx.Session, stmtID, args)
+	fmt.Printf("prepare sql is %s,cost is %f\n", est.Text, tidbtext.ctx.GetSessionVars().Proxy.Cost)
 
 	cluster := cc.server.cluster
 	conn, err := cc.getBackendConn(cluster)
@@ -262,18 +249,17 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		return err
 	}
 
-
 	if !conn.IsProxySelf() {
-		err = cc.bindStmtArgs(tidbtext, argsproxy,stmt.BoundParams(),nullBitmaps, stmt.GetParamsType(), paramValues);
-	//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
-		err = cc.handlePrepare(ctx,conn, preparedStmt, tidbtext.sql,stmt.GetParamsType(),argsproxy)
+		err = cc.bindStmtArgs(tidbtext, argsproxy, stmt.BoundParams(), nullBitmaps, stmt.GetParamsType(), paramValues)
+		//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
+		err = cc.handlePrepare(ctx, conn, preparedStmt, tidbtext.sql, stmt.GetParamsType(), argsproxy)
 		return err
 	} else {
 		ctx = context.WithValue(ctx, execdetails.StmtExecDetailKey, &execdetails.StmtExecDetails{})
 		ctx = context.WithValue(ctx, util.ExecDetailsKey, &util.ExecDetails{})
 
 		retryable, err := cc.executePreparedStmtAndWriteResultForProxy(ctx, stmt, est, useCursor)
-		fmt.Printf("right sql is %s,cost is %f \n",tidbtext.sql,cc.ctx.GetSessionVars().Proxy.Cost)
+		fmt.Printf("right sql is %s,cost is %f \n", tidbtext.sql, cc.ctx.GetSessionVars().Proxy.Cost)
 		_, allowTiFlashFallback := cc.ctx.GetSessionVars().AllowFallbackToTiKV[kv.TiFlash]
 		if allowTiFlashFallback && err != nil && errors.ErrorEqual(err, storeerr.ErrTiFlashServerTimeout) && retryable {
 			// When the TiFlash server seems down, we append a warning to remind the user to check the status of the TiFlash
@@ -325,12 +311,13 @@ func (cc *clientConn) executePreparedStmtAndWriteResult(ctx context.Context, stm
 	}
 	return false, nil
 }
+
 //************
 // The first return value indicates whether the call of executePreparedStmtAndWriteResult has no side effect and can be retried.
 // Currently the first return value is used to fallback to TiKV when TiFlash is down.
 func (cc *clientConn) executePreparedStmtAndWriteResultForProxy(ctx context.Context, stmt PreparedStatement, st *executor.ExecStmt, useCursor bool) (bool, error) {
 	//rs, err := stmt.Execute(ctx, args)
-	rs, err :=ExecuteForProxy(ctx,stmt,st)
+	rs, err := ExecuteForProxy(ctx, stmt, st)
 	if err != nil {
 		return true, errors.Annotate(err, cc.preparedStmt2String(uint32(stmt.ID())))
 	}
@@ -360,9 +347,6 @@ func (cc *clientConn) executePreparedStmtAndWriteResultForProxy(ctx context.Cont
 	}
 	return false, nil
 }
-
-
-
 
 //********
 

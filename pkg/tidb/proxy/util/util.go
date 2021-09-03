@@ -2,7 +2,13 @@ package util
 
 import (
 	"fmt"
+	"k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"time"
+)
+
+var (
+	KubeClient *kubernetes.Clientset
 )
 
 type RetryError struct {
@@ -56,7 +62,14 @@ const (
 	Proxy      int32 = 2
 )
 
+func init() {
 
+	// Create the kubernetes clientset
+	k8sConfig := ctrl.GetConfigOrDie()
+	//k8sConfig, err := clientcmd.BuildConfigFromFlags(viper.GetString("https://10.154.0.150:6443"), viper.GetString("./configs"))
+	//if err != nil {
+	//	klog.Errorf("Failed to get kubeConfig! Error is %v", err)
+	//}
 
-
-
+	KubeClient, _ = kubernetes.NewForConfig(k8sConfig)
+}

@@ -65,11 +65,12 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(payload *admitPayload) *admis
 	}
 
 	//url := "http://" + payload.pod.Labels[sldbLabelKey] + "-he3proxy" + "." + payload.pod.Namespace + ".svc:9797/api/v1/clusters/deltidb"
-	url := "http://" + pod.Labels[sldbLabelKey] + "-proxy" + "." + payload.pod.Namespace + ".svc:10080/api/v1/clusters/deltidb"
+	url := "http://" + pod.Labels[sldbLabelKey] + "-proxy-tidb" + "." + payload.pod.Namespace + ".svc:10080/api/v1/clusters/deltidb"
 	addr := payload.pod.Name + "." + payload.tc.Name + "-tidb-peer." + payload.tc.Namespace + ":4000@" + "1"
 	body := map[string]interface{}{}
 	body["cluster"] = payload.pod.Labels[sldbLabelKey]
 	body["addr"] = addr
+	body["tidbtype"] = payload.pod.Labels[RoleInstanceLabelKey]
 	req := newRequest()
 	resp, err := req.Post(url, body)
 	if err == nil && resp.StatusCode() == 200 {

@@ -1827,17 +1827,19 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 	var err error
 	sctx := cc.ctx
 	if sctx.GetSessionVars().Proxy.Userquery {
-		switch stmt.(type) {
-		case *ast.BeginStmt:
-			err = cc.handleBegin()
-			return false, err
-		case *ast.CommitStmt:
-			err = cc.handleCommit()
-			return false, err
-		case *ast.RollbackStmt:
-			err = cc.handleRollback()
-			return false, err
-		default:
+		if cc.txConn == nil || !cc.txConn.IsProxySelf() {
+			switch stmt.(type) {
+			case *ast.BeginStmt:
+				err = cc.handleBegin()
+				return false, err
+			case *ast.CommitStmt:
+				err = cc.handleCommit()
+				return false, err
+			case *ast.RollbackStmt:
+				err = cc.handleRollback()
+				return false, err
+			default:
+			}
 		}
 	}
 

@@ -46,7 +46,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 		atomic.StoreInt64(&cluster.MaxCostPerSql, cost)
 	}
 	fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql)
-	if !sessionVars.InTxn() {
+	if !sessionVars.InTxn() && sessionVars.IsAutocommit(){
 		//fmt.Println("no tran")
 		co, err = cluster.GetTidbConn(cost)
 		if err != nil {
@@ -75,6 +75,11 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster) (co *backend.Backe
 		} else {
 			if co.IsProxySelf() {
 				atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+			} else {
+				dbtype := co.GetDbType()
+				if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
+					atomic.AddInt64(&cluster.BackendPools[dbtype].Costs, cost)
+				}
 			}
 		}
 
@@ -104,17 +109,9 @@ func (c *clientConn) executeInNode(conn *backend.BackendConn, sql string,paramty
 
 func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	sessionVars := c.ctx.GetSessionVars()
-	fmt.Println("session in txn is ", sessionVars.InTxn())
-	if conn != nil {
-		fmt.Println("conn info is ", conn)
-	}
-	if sessionVars.InTxn() {
-		return
-	}
 	if conn == nil {
 		return
 	}
-	defer conn.Close()
 	dbtype := conn.GetDbType()
 	cost := int64(sessionVars.Proxy.Cost)
 	if !conn.IsProxySelf() && (dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP) {
@@ -123,6 +120,12 @@ func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	if conn.IsProxySelf() {
 		atomic.AddInt64(&c.server.cluster.ProxyNode.ProxyCost, -cost)
 	}
+
+	if sessionVars.InTxn() || !sessionVars.IsAutocommit() {
+		return
+	}
+
+	defer conn.Close()
 
 	if rollback {
 		conn.Rollback()

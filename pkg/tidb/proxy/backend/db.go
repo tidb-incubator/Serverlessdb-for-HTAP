@@ -132,6 +132,10 @@ func (db *DB) Addr() string {
 	return db.addr
 }
 
+func (db *DB) DbType() string {
+	return db.dbType
+}
+
 func (db *DB) State() string {
 	var state string
 	switch db.state {
@@ -424,6 +428,10 @@ func (p *BackendConn) IsProxySelf() bool {
 
 func (p *BackendConn) GetDbType() string {
 	return p.db.dbType
+}
+
+func (p *BackendConn) GetDbAddr() string {
+	return p.db.addr
 }
 
 func (p *BackendConn) SetNoDelayTrue() {

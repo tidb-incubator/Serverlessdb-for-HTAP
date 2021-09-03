@@ -15,7 +15,6 @@
 package backend
 
 import (
-	"github.com/pingcap/tidb/server"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strconv"
@@ -66,7 +65,6 @@ type Pool struct {
 type Proxy struct {
 	ProxyAsCompute bool
 	ProxyCost int64
-	IsPureCompute bool
 }
 
 
@@ -155,7 +153,7 @@ func (cluster *Cluster) checkTidbs() {
 }
 
 func GetOnePod(podName,namespace string) *v1.Pod {
-	pod, err := KubeClient.CoreV1().Pods(namespace).Get(podName,metav1.GetOptions{})
+	pod, err := util.KubeClient.CoreV1().Pods(namespace).Get(podName,metav1.GetOptions{})
 	if err != nil {
 		return nil
 	}
@@ -230,15 +228,16 @@ func (cluster *Cluster) DeleteTidb(addr string, tidbType string) error {
 		}
 	}
 	CanDelete := func() (bool, error) {
-		golog.Info("Cluster", "DeleteTidb", "checking using conn num ", 0)
-
+		golog.Info("Cluster", "DeleteTidb", "checking using conn num ", 0,
+			"usingConnsCount", he3db.usingConnsCount, "InitConnNum", he3db.InitConnNum,
+			"RoundRobinQ", pool.RoundRobinQ, "TidbsWeights", pool.TidbsWeights, "addr",he3db.addr)
 		if he3db.usingConnsCount == 0 {
 			return true, nil
 		}
 		return false, nil
 	}
 
-	if err := util.Retry( 1 * time.Second, 30, CanDelete); err != nil {
+	if err := util.Retry( 1 * time.Second, 600, CanDelete); err != nil {
 
 		golog.Warn("Cluster", "DeleteTidb", "usingconn been killed", 0, "current conn num",he3db.usingConnsCount)
 	}
