@@ -449,7 +449,7 @@ func PodStatusHander(ns, largeTCName, index string) bool {
 			continue
 		}
 		var podlist []*corev1.Pod
-		if podlist, err = utils.GetK8sPodArray(currtc, tidbv1.TiDBMemberType,utils.TP); err != nil {
+		if podlist, err = utils.GetBigCostPodArray(currtc, tidbv1.TiDBMemberType); err != nil {
 			klog.Infof("[%s/%s] GetK8sPodArray failed %v", ns, largeTCName, err)
 			continue
 		}
@@ -506,7 +506,7 @@ func GetAnnoIndex(tc *tidbv1.TidbCluster) (string, map[string]string, error) {
 		klog.Infof("[%s/%s] index is null--------", tc.Namespace, tc.Name)
 		var podlist []*corev1.Pod
 		var err error
-		if podlist, err = utils.GetK8sPodArray(tc, tidbv1.TiDBMemberType,utils.TP); err != nil {
+		if podlist, err = utils.GetBigCostPodArray(tc, tidbv1.TiDBMemberType); err != nil {
 			klog.Infof("[%s/%s] GetK8sPodArray failed %v", tc.Namespace, tc.Name, err)
 			return index, anno, err
 		}
