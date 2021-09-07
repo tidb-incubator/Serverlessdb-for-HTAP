@@ -15,8 +15,10 @@
 package backend
 
 import (
+	"fmt"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,20 +37,21 @@ const (
 	TidbSplit   = ","
 	WeightSplit = "@"
 
-	TiDBForTP = "tp"
-	TiDBForAP = "ap"
+	TiDBForTP          = "tp"
+	TiDBForAP          = "ap"
+	WeightPerHalfProxy = 1
+	DefaultProxySize = 2.0
 )
 
 type Cluster struct {
-	Cfg config.ClusterConfig
-	BackendPools map[string]*Pool
-	ProxyNode *Proxy
+	Cfg              config.ClusterConfig
+	BackendPools     map[string]*Pool
+	ProxyNode        *Proxy
 	DownAfterNoAlive time.Duration
 
 	Online        bool
 	MaxCostPerSql int64
 }
-
 
 type Pool struct {
 	ReadyLock sync.Mutex
@@ -64,9 +67,8 @@ type Pool struct {
 
 type Proxy struct {
 	ProxyAsCompute bool
-	ProxyCost int64
+	ProxyCost      int64
 }
-
 
 func (cluster *Cluster) CheckCluster() {
 	//to do
@@ -77,8 +79,6 @@ func (cluster *Cluster) CheckCluster() {
 		time.Sleep(16 * time.Second)
 	}
 }
-
-
 
 func (cluster *Cluster) GetTidbConn(cost int64) (*BackendConn, error) {
 
@@ -98,6 +98,7 @@ func (cluster *Cluster) GetTidbConn(cost int64) (*BackendConn, error) {
 	if db.dbType == BigCost {
 		conn, err := db.newConn()
 		if err != nil {
+			fmt.Println("err is ", err)
 			return nil, errors.ErrConnIsNil
 		}
 		return &BackendConn{conn, db}, nil
@@ -152,12 +153,12 @@ func (cluster *Cluster) checkTidbs() {
 	}
 }
 
-func GetOnePod(podName,namespace string) *v1.Pod {
-	pod, err := util.KubeClient.CoreV1().Pods(namespace).Get(podName,metav1.GetOptions{})
+func GetOnePod(podName, namespace string) *v1.Pod {
+	pod, err := util.KubeClient.CoreV1().Pods(namespace).Get(podName, metav1.GetOptions{})
 	if err != nil {
 		return nil
 	}
-	if v,ok := pod.Labels["predelete"];ok {
+	if v, ok := pod.Labels["predelete"]; ok {
 		if v == "true" {
 			return nil
 		}
@@ -181,15 +182,18 @@ func (cluster *Cluster) AddTidb(addr, tidbType string) error {
 		}
 	}
 	//lock check pod status,predelete filter
-	podArr := strings.Split(addr,".")
-	podName := podArr[0]
-	podNs := podArr[2]
-	nsArr := strings.Split(podNs,":")
-	ns := nsArr[0]
-	pod := GetOnePod(podName,ns)
-	if pod == nil {
-		return nil
+	if strings.Split(addr, WeightSplit)[0] != "self" {
+		podArr := strings.Split(addr, ".")
+		podName := podArr[0]
+		podNs := podArr[2]
+		nsArr := strings.Split(podNs, ":")
+		ns := nsArr[0]
+		pod := GetOnePod(podName, ns)
+		if pod == nil {
+			return nil
+		}
 	}
+
 	addrAndWeight := strings.Split(addr, WeightSplit)
 	if len(addrAndWeight) == 2 {
 		weight, err = strconv.ParseFloat(addrAndWeight[1], 64)
@@ -202,24 +206,28 @@ func (cluster *Cluster) AddTidb(addr, tidbType string) error {
 	pool.TidbsWeights = append(pool.TidbsWeights, weight)
 	if addrAndWeight[0] == "self" {
 		db = &DB{
-			addr:   addrAndWeight[0],
-			Self:   true,
+			addr: addrAndWeight[0],
+			Self: true,
 		}
 		cluster.ProxyNode.ProxyAsCompute = true
 	} else if db, err = cluster.OpenDB(addrAndWeight[0], weight); err != nil {
 		return err
 	}
 
-		db.dbType = tidbType
-		pool.Tidbs = append(pool.Tidbs, db)
-		pool.InitBalancer()
-		return nil
+	db.dbType = tidbType
+	pool.Tidbs = append(pool.Tidbs, db)
+	if tidbType == TiDBForTP && cluster.ProxyNode.ProxyAsCompute && addrAndWeight[0] != "self" {
+		if pool.RebalanceWeight(math.Ceil(weight / WeightPerHalfProxy)) {
+			cluster.ProxyNode.ProxyAsCompute = false
+		}
+	}
+	pool.InitBalancer()
+	return nil
 }
 
-
 func (cluster *Cluster) DeleteTidb(addr string, tidbType string) error {
-	pool := cluster.BackendPools[tidbType]
-	he3db,err := pool.InitBalancerAfterDeleteTidb(addr)
+	//pool := cluster.BackendPools[tidbType]
+	he3db, err := cluster.InitBalancerAfterDeleteTidb(addr, tidbType)
 	if err != nil {
 		return err
 	} else {
@@ -230,26 +238,28 @@ func (cluster *Cluster) DeleteTidb(addr string, tidbType string) error {
 	CanDelete := func() (bool, error) {
 		golog.Info("Cluster", "DeleteTidb", "checking using conn num ", 0,
 			"usingConnsCount", he3db.usingConnsCount, "InitConnNum", he3db.InitConnNum,
-			"RoundRobinQ", pool.RoundRobinQ, "TidbsWeights", pool.TidbsWeights, "addr",he3db.addr)
+			"RoundRobinQ", cluster.BackendPools[tidbType].RoundRobinQ, "TidbsWeights",
+			cluster.BackendPools[tidbType].TidbsWeights, "addr", he3db.addr)
 		if he3db.usingConnsCount == 0 {
 			return true, nil
 		}
 		return false, nil
 	}
 
-	if err := util.Retry( 1 * time.Second, 600, CanDelete); err != nil {
+	if err := util.Retry(1*time.Second, 600, CanDelete); err != nil {
 
-		golog.Warn("Cluster", "DeleteTidb", "usingconn been killed", 0, "current conn num",he3db.usingConnsCount)
+		golog.Warn("Cluster", "DeleteTidb", "usingconn been killed", 0, "current conn num", he3db.usingConnsCount)
 	}
 
 	return nil
 }
 
-func (cluster *Pool) InitBalancerAfterDeleteTidb(addr string)(*DB,error) {
+func (cluster *Cluster) InitBalancerAfterDeleteTidb(addr, tidbType string) (*DB, error) {
 	var i int
-	cluster.Lock()
-	defer cluster.Unlock()
-	TidbCount := len(cluster.Tidbs)
+	pool := cluster.BackendPools[tidbType]
+	pool.Lock()
+	defer pool.Unlock()
+	TidbCount := len(pool.Tidbs)
 	if TidbCount == 0 {
 		return nil, errors.ErrNoTidbDB
 	}
@@ -257,8 +267,8 @@ func (cluster *Pool) InitBalancerAfterDeleteTidb(addr string)(*DB,error) {
 	var he3db *DB
 
 	for i = 0; i < TidbCount; i++ {
-		if cluster.Tidbs[i].addr == addr {
-			he3db = cluster.Tidbs[i]
+		if pool.Tidbs[i].addr == addr {
+			he3db = pool.Tidbs[i]
 			break
 		}
 	}
@@ -267,43 +277,51 @@ func (cluster *Pool) InitBalancerAfterDeleteTidb(addr string)(*DB,error) {
 		return nil, errors.ErrTidbNotExist
 	}
 	if TidbCount == 1 {
-		cluster.Tidbs = nil
-		cluster.TidbsWeights = nil
-		cluster.RoundRobinQ = nil
+		pool.Tidbs = nil
+		pool.TidbsWeights = nil
+		pool.RoundRobinQ = nil
 		return nil, nil
 	}
 
 	s := make([]*DB, 0, TidbCount-1)
 	sw := make([]float64, 0, TidbCount-1)
+	var weight float64
 	for i = 0; i < TidbCount; i++ {
-		if cluster.Tidbs[i].addr != addr {
-			s = append(s, cluster.Tidbs[i])
-			sw = append(sw, cluster.TidbsWeights[i])
+		if pool.Tidbs[i].addr != addr {
+			s = append(s, pool.Tidbs[i])
+			sw = append(sw, pool.TidbsWeights[i])
+		} else {
+			weight = pool.TidbsWeights[i]
 		}
 	}
 
-	cluster.Tidbs = s
-	cluster.TidbsWeights = sw
-	cluster.InitBalancer()
+	pool.Tidbs = s
+	pool.TidbsWeights = sw
+
+	if tidbType == TiDBForTP && cluster.ProxyNode.ProxyAsCompute && addr != "self" {
+		if pool.RebalanceWeight(-math.Ceil(weight / WeightPerHalfProxy)) {
+			cluster.ProxyNode.ProxyAsCompute = false
+		}
+	}
+	pool.InitBalancer()
 	return he3db, nil
 }
 
-func (cluster *Cluster) OpenDB(addr string,weight float64) (*DB, error) {
+func (cluster *Cluster) OpenDB(addr string, weight float64) (*DB, error) {
 	db, err := Open(addr, cluster.Cfg.User, cluster.Cfg.Password, "", weight)
 	return db, err
 }
 
 func (cluster *Pool) UpDB(addr, user, passwd string) (*DB, error) {
-	weight:=1.0
-	for i,db:= range cluster.Tidbs{
-		if db.addr==addr{
+	weight := 1.0
+	for i, db := range cluster.Tidbs {
+		if db.addr == addr {
 
-	weight=cluster.TidbsWeights[i]
+			weight = cluster.TidbsWeights[i]
 		}
 	}
 
 	db, err := Open(addr, user, passwd, "", weight)
-
 
 	if err != nil {
 		return nil, err
@@ -360,10 +378,11 @@ func (cluster *Pool) DownTidb(addr string, state int32) error {
 }
 
 //TidbStr(127.0.0.1:3306@2,192.168.0.12:3306@3)
-func (pool *Pool) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfig) error {
+func (cluster *Cluster) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfig) error {
 	var db *DB
 	var weight float64
 	var err error
+	var sum float64
 
 	if len(Tidbs) == 0 {
 		return nil
@@ -371,6 +390,7 @@ func (pool *Pool) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfig) err
 	Tidbs = strings.Trim(Tidbs, TidbSplit)
 	TidbArray := strings.Split(Tidbs, TidbSplit)
 	count := len(TidbArray)
+	pool := cluster.BackendPools[dbType]
 
 	//parse addr and weight
 	for i := 0; i < count; i++ {
@@ -386,10 +406,11 @@ func (pool *Pool) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfig) err
 		pool.TidbsWeights = append(pool.TidbsWeights, weight)
 		if addrAndWeight[0] == "self" {
 			db = &DB{
-				addr:   addrAndWeight[0],
-				Self:   true,
+				addr: addrAndWeight[0],
+				Self: true,
 			}
 		} else {
+			sum += weight
 			if db, err = Open(addrAndWeight[0], cfg.User, cfg.Password, "", weight); err != nil {
 				continue
 			}
@@ -398,6 +419,39 @@ func (pool *Pool) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfig) err
 		db.dbType = dbType
 		pool.Tidbs = append(pool.Tidbs, db)
 	}
+	if pool.RebalanceWeight(math.Ceil(sum / WeightPerHalfProxy)) {
+		cluster.ProxyNode.ProxyAsCompute = false
+	}
 	pool.InitBalancer()
 	return nil
+}
+
+func (cluster *Pool) RebalanceWeight(reduceWeight float64) bool {
+	var PurePorxy bool
+	for index, tidb := range cluster.Tidbs {
+		if tidb.Self {
+			reduce := reduceWeight * 0.5
+			if cluster.TidbsWeights[index] - reduce <= 0 {
+				fmt.Println("proxy node as pure proxy role.")
+				PurePorxy = true
+				TidbCount := len(cluster.Tidbs)
+				s := make([]*DB, 0, TidbCount-1)
+				sw := make([]float64, 0, TidbCount-1)
+				for i := 0; i < TidbCount; i++ {
+					if cluster.Tidbs[i].addr != "self" {
+						s = append(s, cluster.Tidbs[i])
+						sw = append(sw, cluster.TidbsWeights[i])
+					}
+				}
+				cluster.Tidbs = s
+				cluster.TidbsWeights = sw
+			} else if cluster.TidbsWeights[index] - reduce > DefaultProxySize  {
+				cluster.TidbsWeights[index] = DefaultProxySize
+			} else {
+				cluster.TidbsWeights[index] = cluster.TidbsWeights[index] - reduce
+			}
+			fmt.Println("after adjust proxy node's weight is ", cluster.TidbsWeights[index])
+		}
+	}
+	return PurePorxy
 }

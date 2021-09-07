@@ -240,7 +240,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 	*/
 
 	est, _ := session.ExecutePreparedStmtForProxy(ctx, tidbtext.ctx.Session, stmtID, args)
-	fmt.Printf("prepare sql is %s,cost is %f\n", est.Text, tidbtext.ctx.GetSessionVars().Proxy.Cost)
+	//fmt.Printf("prepare sql is %s,cost is %f\n", est.Text, tidbtext.ctx.GetSessionVars().Proxy.Cost)
 
 	cluster := cc.server.cluster
 	conn, err := cc.getBackendConn(cluster)
@@ -259,7 +259,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		ctx = context.WithValue(ctx, util.ExecDetailsKey, &util.ExecDetails{})
 
 		retryable, err := cc.executePreparedStmtAndWriteResultForProxy(ctx, stmt, est, useCursor)
-		fmt.Printf("right sql is %s,cost is %f \n", tidbtext.sql, cc.ctx.GetSessionVars().Proxy.Cost)
+		//fmt.Printf("right sql is %s,cost is %f \n", tidbtext.sql, cc.ctx.GetSessionVars().Proxy.Cost)
 		_, allowTiFlashFallback := cc.ctx.GetSessionVars().AllowFallbackToTiKV[kv.TiFlash]
 		if allowTiFlashFallback && err != nil && errors.ErrorEqual(err, storeerr.ErrTiFlashServerTimeout) && retryable {
 			// When the TiFlash server seems down, we append a warning to remind the user to check the status of the TiFlash
