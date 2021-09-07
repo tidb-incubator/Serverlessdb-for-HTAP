@@ -28,9 +28,12 @@ import (
 )
 
 const initTiDBCount = 1
-const ComponentLabelKey string = "app.kubernetes.io/component"
-const AllInstanceLabelKey string = "bcrds.cmss.com/instance"
-const RoleInstanceLabelKey string = "bcrds.cmss.com/role"
+const (
+	ComponentLabelKey    string = "app.kubernetes.io/component"
+	AllInstanceLabelKey  string = "bcrds.cmss.com/instance"
+	RoleInstanceLabelKey string = "bcrds.cmss.com/role"
+	TidbPort             string = "4000"
+)
 
 type Service struct{}
 
@@ -45,7 +48,7 @@ func (s *Service) ScaleTempCluster(ctx context.Context, request *scalepb.TempClu
 			res.Success = false
 			return &res, err
 		}
-		klog.Infof("[%s/%s]finish create large tc--------Addr %s\n", request.Namespace, request.Clustername,svcName)
+		klog.Infof("[%s/%s]finish create large tc--------Addr %s\n", request.Namespace, request.Clustername, svcName)
 		res.Success = true
 		return &res, err
 	} else if request.StopAddr != "" {
@@ -55,7 +58,7 @@ func (s *Service) ScaleTempCluster(ctx context.Context, request *scalepb.TempClu
 			res.Success = false
 			return &res, err
 		}
-		klog.Infof("[%s/%s]finish delete large tc--------Addr %s\n", request.Namespace, request.Clustername,request.StopAddr)
+		klog.Infof("[%s/%s]finish delete large tc--------Addr %s\n", request.Namespace, request.Clustername, request.StopAddr)
 		res.Success = true
 		return &res, err
 	}
@@ -85,7 +88,7 @@ func (*Service) UpdateRule(ctx context.Context, req *scalepb.UpdateRequest) (*sc
 	}
 	totalHashrate = utils.CompareResource(sldb.Spec.MaxValue.Metric, totalHashrate)
 
-	tclist,_,err := utils.CloneMutiRevsionTc(sldb,utils.TP)
+	tclist, _, err := utils.CloneMutiRevsionTc(sldb, utils.TP)
 	if err != nil {
 		klog.Errorf("sldb %s/%s clone multi revision TC failed: %v.", sldb.Namespace, sldb.Name, err)
 		return reply, err
@@ -135,7 +138,7 @@ func (*Service) AutoScalerCluster(ctx context.Context, req *scalepb.AutoScaleReq
 		ScalerNeedCore: float64(hashrate),
 		ScalerCurtime:  curtime,
 	}
-	utils.UpdateLastData(name + "-" + scaletype, ns, &data, int(autoScalerFlag))
+	utils.UpdateLastData(name+"-"+scaletype, ns, &data, int(autoScalerFlag))
 	reply := &scalepb.UpdateReply{
 		Success: true,
 	}
@@ -183,7 +186,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 		klog.Infof("[%s/%s]ScaleCluster check tc, scale type is %s.", tc.Namespace, tc.Name, scaletype)
 		if hashrate == 0 {
 			if i == 0 {
-				utils.CleanHashrate(&tc,scaletype)
+				utils.CleanHashrate(&tc, scaletype)
 			}
 			if tc.Annotations != nil {
 				if _, ok := tc.Annotations[label.AnnTiDBDeleteSlots]; ok {
@@ -218,7 +221,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 				}
 			} else {
 				tc.Spec.TiDB.Replicas = 1
-				utils.OneHashrate(&tc,scaletype)
+				utils.OneHashrate(&tc, scaletype)
 				if err = updateTc(&tc, tc.Spec.TiDB.Replicas, cpu); err != nil {
 					klog.Errorf("[%s/%s]update tc failed: %s", ns, tc.Name, err)
 					return reply, fmt.Errorf("update tc %s/%s failed.", tc.Namespace, tc.Name)
@@ -253,7 +256,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 			break
 		}
 
-		pods, listerr = utils.GetK8sAllPodArray(sldb.Name, sldb.Namespace, tidbv1.TiDBMemberType,scaletype)
+		pods, listerr = utils.GetK8sAllPodArray(sldb.Name, sldb.Namespace, tidbv1.TiDBMemberType, scaletype)
 		if listerr != nil {
 			klog.Errorf("[%s/%s] get pods list failed: %s", sldb.Namespace, sldb.Name, listerr)
 			break
@@ -278,8 +281,8 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 			klog.Infof("[%s/%s] ScaleCluster DnsCheck success,pod %s", sldb.Namespace, sldb.Name, readyPod.Name)
 		}
 		var podList []*corev1.Pod
-		podList = append(podList,readyPod)
-		if err := utils.CallupTidb(podList,sldb.Name,sldb.Namespace,scaletype);err!=nil {
+		podList = append(podList, readyPod)
+		if err := utils.CallupTidb(podList, sldb.Name, sldb.Namespace, scaletype); err != nil {
 			return reply, err
 		}
 	}
@@ -303,25 +306,25 @@ func updateTc(tc *tidbv1.TidbCluster, replica int32, cpu resource.Quantity) erro
 	oneMemNorms, _ := resource.ParseQuantity("1Gi")
 	max := cpu.MilliValue() / norms.MilliValue()
 	var memNorms resource.Quantity
-	hashrate := 0.5*float64(max)
-	memNorms = utils.GetMemory(hashrate,oneMemNorms)
-	var limitCpu,limitMem resource.Quantity
+	hashrate := 0.5 * float64(max)
+	memNorms = utils.GetMemory(hashrate, oneMemNorms)
+	var limitCpu, limitMem resource.Quantity
 	if max == 1 {
-		nameArr := strings.Split(tc.Name,"-new")
+		nameArr := strings.Split(tc.Name, "-new")
 		sldb, err := utils.GetSldb(nameArr[0], tc.Namespace)
 		if err != nil {
 			return err
 		}
 		//0.5 hashrate use 1/4 max resource
 		hashrate := utils.CalcMaxPerfResource(sldb.Spec.MaxValue.Metric)
-		hashrateMode := math.Ceil(float64(hashrate)/4.0)
+		hashrateMode := math.Ceil(float64(hashrate) / 4.0)
 		cpustr := fmt.Sprintf("%g", hashrateMode)
-		limitCpu,err = resource.ParseQuantity(cpustr)
+		limitCpu, err = resource.ParseQuantity(cpustr)
 		if err != nil {
 			klog.Errorf("[%s/%s] err %v updateTc limit cpustr %s", tc.Namespace, tc.Name, err, cpustr)
 			return err
 		}
-		limitMem = utils.GetMemory(hashrateMode,oneMemNorms)
+		limitMem = utils.GetMemory(hashrateMode, oneMemNorms)
 	} else {
 		limitCpu = cpu
 		limitMem = memNorms
@@ -599,7 +602,7 @@ func StartLargeTc(clusName, ns string) (string, error) {
 		oldTc.Spec.TiDB.Replicas = 0
 		podStatus := PodStatusHander(ns, largeTCName, "0")
 		if podStatus == true {
-			svcName = largeTCName + "-tidb-" + index + "." + largeTCName + "-tidb-" + "peer" + "." + ns
+			svcName = largeTCName + "-tidb-" + index + "." + largeTCName + "-tidb-" + "peer" + "." + ns + ":" + TidbPort
 			return svcName, nil
 		} else {
 			err = deletePod(largeTc, index)
@@ -630,7 +633,7 @@ func StartLargeTc(clusName, ns string) (string, error) {
 		}
 		podStatus := PodStatusHander(ns, largeTCName, index)
 		if podStatus == true {
-			svcName := largeTCName + "-tidb-" + index + "." + largeTCName + "-tidb-" + "peer" + "." + ns
+			svcName := largeTCName + "-tidb-" + index + "." + largeTCName + "-tidb-" + "peer" + "." + ns + ":" + TidbPort
 			return svcName, nil
 		} else {
 			klog.Infof("[%s/%s]pod-----status not ok-------%s---%s\n", ns, largeTCName, svcName, index)

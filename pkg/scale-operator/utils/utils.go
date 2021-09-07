@@ -501,7 +501,7 @@ func GetK8sAllPodArray(name string, namesp string, sldbType tcv1.MemberType, sca
 
 func GetBigCostPodArray(tc *tcv1.TidbCluster, sldbType tcv1.MemberType) ([]*corev1.Pod, error) {
 	labelkv := fmt.Sprintf(`%s=%s,%s=%s,%s=%s,%s=%s`, "app.kubernetes.io/component", string(sldbType), "app.kubernetes.io/instance", tc.Name,
-		"app.kubernetes.io/managed-by", "tidb-operator","RoleInstanceLabelKey", "bigcost")
+		"app.kubernetes.io/managed-by", "tidb-operator",RoleInstanceLabelKey, "bigcost")
 	listopt := metav1.ListOptions{
 		LabelSelector: labelkv,
 	}

@@ -1853,7 +1853,7 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 	if err != nil {
 		return false, err
 	}
-    fmt.Printf("new sql is %s,cost is %f \n",stmt.Text(),cc.ctx.GetSessionVars().Proxy.Cost)
+    //fmt.Printf("new sql is %s,cost is %f \n",stmt.Text(),cc.ctx.GetSessionVars().Proxy.Cost)
 	conn, err := cc.getBackendConn(cc.server.cluster)
 	defer cc.closeConn(conn, false)
 	if err != nil {

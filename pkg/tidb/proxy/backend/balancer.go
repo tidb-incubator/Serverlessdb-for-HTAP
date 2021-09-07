@@ -54,6 +54,25 @@ func Gcd(ary []int) int {
 	return min
 }
 
+func ngcd(costs []int, n int) int {
+	if n == 1 {
+		return costs[n-1]
+	}
+	return gcd(costs[n-1], ngcd(costs, n-1))
+}
+
+func gcd(x, y int) int {
+	if x == 0 {
+		return y
+	}
+	complment := y % x
+	if complment != 0 {
+		return gcd(complment, x)
+	} else {
+		return x
+	}
+}
+
 func (cluster *Pool) InitBalancer() {
 	var sum int
 	cluster.LastTidbIndex = 0
@@ -64,7 +83,8 @@ func (cluster *Pool) InitBalancer() {
 		sws = append(sws, int(cluster.TidbsWeights[i]*10))
 	}
 
-	gcd := Gcd(sws)
+	//gcd := Gcd(sws)
+	gcd := ngcd(sws, len(sws))
 
 	for i, v := range sws {
 		weight := v / gcd
@@ -143,10 +163,10 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 		}
 		return db, err
 
-	case cost > 10000000:
+	case cost > 1000000000:
 		//Predicate SQL is belong to Big AP type
 		//invoke grpc api of starting a new pod to handle this request.
-		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, DefaultBigSize, false, "bigcost")
+		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, DefaultBigSize, true, "")
 		if err != nil {
 			return nil, err
 		}
@@ -228,6 +248,7 @@ func GetBigCostDB(addr string, user string, password string, dbName string) (*DB
 	db.user = user
 	db.password = password
 	db.db = dbName
+	db.dbType = BigCost
 
 	return db, nil
 }
@@ -237,6 +258,7 @@ func ScaleTempTidb(ns, clus string, hashrate float32, needStart bool, needStopAd
 
 	conn, err := grpc.Dial(serviceName, grpc.WithInsecure())
 	if err != nil {
+		fmt.Errorf("scale big tidb failed:%s", err)
 		return nil, err
 	}
 	defer conn.Close()
