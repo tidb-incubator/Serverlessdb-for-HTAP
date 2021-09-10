@@ -35,6 +35,7 @@ type AutoScalerManager struct {
 
 type AutoScalerAPI interface {
 	SCalerOutInHandler(sldb *sldbv1.ServerlessDB) (bool, error)
+	SCalerOutInAPHandler(sldb *sldbv1.ServerlessDB) (bool, error)
 	TiKVSCalerHandler(sldb *sldbv1.ServerlessDB) (bool, error)
 	ScalerBaseOnMidWareTP(sldb *sldbv1.ServerlessDB) (bool,error)
 	ScalerBaseOnMidWareAP(sldb *sldbv1.ServerlessDB) (bool,error)
@@ -48,6 +49,24 @@ func NewAutoScalerAPI() AutoScalerAPI {
 
 func (am *AutoScalerManager) SCalerOutInHandler(sldb *sldbv1.ServerlessDB) (bool, error) {
 	return true, am.autoScalerHander(sldb, v1alpha1.TiDBMemberType)
+}
+
+func (am *AutoScalerManager) SCalerOutInAPHandler(sldb *sldbv1.ServerlessDB) (bool, error) {
+	//get all tc
+	tclus,tc,err := utils.CloneMutiRevsionTc(sldb,utils.AP)
+	if tclus == nil {
+		klog.Infof("[%s/%s] CloneMutiRevsionTc problem err %v", sldb.Namespace, sldb.Name, err)
+		return false, fmt.Errorf("[%s/%s] CloneMutiRevsionTc problem err %v",sldb.Namespace, sldb.Name,err)
+	}
+	// check AP tc status
+	if tclus.OldTc[0].Tc.Status.TiDB.Phase != v1alpha1.NormalPhase || tc.Status.TiKV.Phase != v1alpha1.NormalPhase {
+		return false, fmt.Errorf("[%s/%s] AP tc is no normal",sldb.Namespace,sldb.Name)
+	}
+	err = utils.SyncReplicasToMidWare(tclus,utils.TP)
+	if err != nil {
+		return false,fmt.Errorf("[%s/%s]%v", sldb.Namespace, sldb.Name, err)
+	}
+	return true,nil
 }
 
 func (am *AutoScalerManager) TiKVSCalerHandler(sldb *sldbv1.ServerlessDB) (bool, error) {

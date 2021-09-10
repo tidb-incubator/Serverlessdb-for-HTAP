@@ -92,12 +92,12 @@ func execTask(funcVar func(sldb *v1alpha1.ServerlessDB) (bool, error), name stri
 				}
 				klog.Infof("[%s/%s]-%s", sldbClus.Namespace, sldbClus.Name, name)
 				_, err := funcVar(&sldbClus)
-				if err != nil {
-					klog.Infof("[%s/%s]-%s funcVar err %v", sldbClus.Namespace, sldbClus.Name, name, err)
-				}
 				globalMutex.Lock()
 				delete(taskMap, sldbClus.Namespace+"-"+sldbClus.Name+"-"+name)
 				globalMutex.Unlock()
+				if err != nil {
+					klog.Infof("[%s/%s]-%s funcVar err %v", sldbClus.Namespace, sldbClus.Name, name, err)
+				}
 			}
 		}(i)
 	}
@@ -113,21 +113,27 @@ func scalerRuleTask() {
 }
 
 func scalerOutInTaskTP() {
-	klog.Infof("[scalerOutTask action start]")
-	execTask(contabScheduler.SCalerOutInHandler,"Scaler")
-	klog.Infof("[scalerOutTask action end]")
+	klog.Infof("[scalerOutInTaskTP action start]")
+	execTask(contabScheduler.SCalerOutInHandler,"TPScaler")
+	klog.Infof("[scalerOutInTaskTP action end]")
 }
 
 func ScalerInBaseOnMidWareTP() {
 	klog.Infof("[ScalerInBaseOnMidWareTP action start]")
-	execTask(contabScheduler.ScalerBaseOnMidWareTP,"Scaler")
+	execTask(contabScheduler.ScalerBaseOnMidWareTP,"TPScaler")
 	klog.Infof("[ScalerInBaseOnMidWareTP action end]")
 }
 
 func ScalerInBaseOnMidWareAP() {
 	klog.Infof("[ScalerInBaseOnMidWareAP action start]")
-	execTask(contabScheduler.ScalerBaseOnMidWareAP,"Scaler")
+	execTask(contabScheduler.ScalerBaseOnMidWareAP,"APScaler")
 	klog.Infof("[ScalerInBaseOnMidWareAP action end]")
+}
+
+func scalerOutInTaskAP() {
+	klog.Infof("[scalerOutInTaskAP action start]")
+	execTask(contabScheduler.SCalerOutInAPHandler,"APScaler")
+	klog.Infof("[scalerOutInTaskAP action end]")
 }
 
 func expandStorageTask() {
@@ -145,6 +151,7 @@ func ScalerTimeTask() {
 	c.AddFunc(oneSecondSpec,ScalerInBaseOnMidWareAP)
 	secondSpec := "*/15 * * * * ?"
 	c.AddFunc(secondSpec,scalerOutInTaskTP)
+	c.AddFunc(secondSpec,scalerOutInTaskAP)
 	c.AddFunc(secondSpec, expandStorageTask)
 	ruleSpec := "30 59 */1 * * ?"
 	c.AddFunc(ruleSpec, scalerRuleTask)
