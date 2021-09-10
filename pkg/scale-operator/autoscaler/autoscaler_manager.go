@@ -62,7 +62,7 @@ func (am *AutoScalerManager) SCalerOutInAPHandler(sldb *sldbv1.ServerlessDB) (bo
 	if tclus.OldTc[0].Tc.Status.TiDB.Phase != v1alpha1.NormalPhase || tc.Status.TiKV.Phase != v1alpha1.NormalPhase {
 		return false, fmt.Errorf("[%s/%s] AP tc is no normal",sldb.Namespace,sldb.Name)
 	}
-	err = utils.SyncReplicasToMidWare(tclus,utils.TP)
+	err = utils.SyncReplicasToMidWare(tclus,utils.AP)
 	if err != nil {
 		return false,fmt.Errorf("[%s/%s]%v", sldb.Namespace, sldb.Name, err)
 	}
