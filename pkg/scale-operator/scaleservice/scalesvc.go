@@ -41,7 +41,7 @@ func (s *Service) ScaleTempCluster(ctx context.Context, request *scalepb.TempClu
 	klog.Infof("[%s/%s]HandleLargeTc method is called, the svcName is %s\n", request.Namespace, request.Clustername)
 	var res scalepb.TempClusterReply
 	if request.Start == true {
-		svcName, err := StartLargeTc(request.Clustername, request.Namespace)
+		svcName, err := StartLargeTc(request.Clustername, request.Namespace, request.Hashrate)
 		res.StartAddr = svcName
 		if err != nil {
 			klog.Errorf("[%s/%s]StartLargeTc failed: %s", request.Namespace, request.Clustername, err)
@@ -380,7 +380,7 @@ func updateTc(tc *tidbv1.TidbCluster, replica int32, cpu resource.Quantity) erro
 	return err
 }
 
-func CreateLargeTc(clusName, ns, largeTCName string) (*tidbv1.TidbCluster, error) {
+func CreateLargeTc(clusName, ns, largeTCName string, norm int) (*tidbv1.TidbCluster, error) {
 	tc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(clusName)
 	if err != nil {
 		klog.Errorf("[%s/%s] get TidbClusters failed", ns, clusName)
@@ -397,9 +397,12 @@ func CreateLargeTc(clusName, ns, largeTCName string) (*tidbv1.TidbCluster, error
 	newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
 	newtc.Spec.TiDB.Labels[RoleInstanceLabelKey] = "bigcost"
 	newtc.Spec.TiDB.Replicas = 1
+
+	cpuT := strconv.Itoa(norm)
+	memT := strconv.Itoa(norm*4) + "Gi"
 	var limit = make(corev1.ResourceList)
-	limit[corev1.ResourceMemory] = resource.MustParse("2Gi")
-	limit[corev1.ResourceCPU] = resource.MustParse("1")
+	limit[corev1.ResourceMemory] = resource.MustParse(memT)
+	limit[corev1.ResourceCPU] = resource.MustParse(cpuT)
 
 	newtc.Spec.TiDB.Limits = limit
 	newtc.Spec.Version = tc.Spec.Version
@@ -581,8 +584,28 @@ func deletePod(largeTc *tidbv1.TidbCluster, index string) error {
 	return nil
 }
 
-func StartLargeTc(clusName, ns string) (string, error) {
-	largeTCName := clusName + "-large"
+func decideNorms (hashrate float32) int {
+	var norm int
+	switch {
+	case hashrate > 0  && hashrate <= 16:
+		norm = 16
+	case hashrate > 16  && hashrate <= 32:
+		norm = 32
+	case hashrate > 32  && hashrate <= 64:
+		norm = 64
+	case hashrate > 64:
+		norm = 128
+	default:
+		norm = 16
+	}
+	return norm
+}
+
+
+func StartLargeTc(clusName, ns string, hashrate float32) (string, error) {
+	norm := decideNorms(hashrate)
+	normStr := strconv.Itoa(norm)
+	largeTCName := clusName + "-large" + normStr
 	var svcName string
 	var index string
 	largeTc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(largeTCName)
@@ -593,7 +616,7 @@ func StartLargeTc(clusName, ns string) (string, error) {
 	if errors.IsNotFound(err) {
 		klog.Infof("[%s/%s]------------come to create newtc------------\n", ns, largeTCName)
 		index = "0"
-		largeTc, err := CreateLargeTc(clusName, ns, largeTCName)
+		largeTc, err := CreateLargeTc(clusName, ns, largeTCName, norm)
 		if err != nil {
 			klog.Errorf("[%s/%s] Create large TidbClusters failed", ns, clusName)
 			return svcName, err
