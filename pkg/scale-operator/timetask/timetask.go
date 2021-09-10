@@ -91,6 +91,8 @@ func execTask(funcVar func(sldb *v1alpha1.ServerlessDB) (bool, error), name stri
 					continue
 				}
 				klog.Infof("[%s/%s]-%s", sldbClus.Namespace, sldbClus.Name, name)
+				sldbClus.Spec.ScaleIn = "15s"
+				sldbClus.Spec.ScaleOut = "15s"
 				_, err := funcVar(&sldbClus)
 				globalMutex.Lock()
 				delete(taskMap, sldbClus.Namespace+"-"+sldbClus.Name+"-"+name)

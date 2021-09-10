@@ -31,7 +31,7 @@ import (
 const (
 	TikvSumStorageMetricsPattern         = `sum(tikv_engine_size_bytes{app_kubernetes_io_instance="%s",app_kubernetes_io_component="tikv",kubernetes_namespace="%s"}) by (app_kubernetes_io_instance)`
 	TikvSumStorageMetricsPressurePattern = `sum(tikv_store_size_bytes{app_kubernetes_io_instance="%s",type="%s",app_kubernetes_io_component="tikv",kubernetes_namespace="%s"}) by (statefulset_kubernetes_io_pod_name)`
-	TidbSumCpuMetricsPattern             = `sum(increase(process_cpu_seconds_total{app_kubernetes_io_instance=~"%s.*",app_kubernetes_io_component="tidb",kubernetes_namespace="%s"}[%s])) by (statefulset_kubernetes_io_pod_name)`
+	TidbSumCpuMetricsPattern             = `sum(increase(process_cpu_seconds_total{statefulset_kubernetes_io_pod_name=~"%s-t.*",app_kubernetes_io_component="tidb",kubernetes_namespace="%s"}[%s])) by (statefulset_kubernetes_io_pod_name)`
 	TidbSumTpsMetricsPattern             = `sum(increase(tidb_session_transaction_duration_seconds_count{app_kubernetes_io_instance=~"%s.*",app_kubernetes_io_component="tidb",kubernetes_namespace="%s"}[%s])) by (statefulset_kubernetes_io_pod_name)`
 	queryPath                            = "/api/v1/query"
 
