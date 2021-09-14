@@ -617,7 +617,7 @@ func StartLargeTc(clusName, ns string, hashrate float32) (string, error) {
 	if errors.IsNotFound(err) {
 		klog.Infof("[%s/%s]------------come to create newtc------------\n", ns, largeTCName)
 		index = "0"
-		largeTc, err := CreateLargeTc(clusName, ns, largeTCName, 64)
+		largeTc, err := CreateLargeTc(clusName, ns, largeTCName, norm)
 		if err != nil {
 			klog.Errorf("[%s/%s] Create large TidbClusters failed", ns, clusName)
 			return svcName, err
