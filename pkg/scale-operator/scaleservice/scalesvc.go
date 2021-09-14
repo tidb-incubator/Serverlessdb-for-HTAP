@@ -421,7 +421,7 @@ func CreateLargeTc(clusName, ns, largeTCName string, norm int) (*tidbv1.TidbClus
 	newtc.OwnerReferences = tc.OwnerReferences
 	_, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Create(newtc)
 	if err != nil {
-		klog.Infof("[%s/%s]-----Create tc fail------------ %v\n", ns, largeTCName, err)
+		klog.Errorf("[%s/%s]-----Create tc fail------------ %v\n", ns, largeTCName, err)
 		if errors.IsAlreadyExists(err) {
 			newtc, err = sldbcluster.SldbClient.PingCapCli.PingcapV1alpha1().TidbClusters(tc.Namespace).Get(largeTCName, metav1.GetOptions{})
 			if err != nil {
@@ -445,7 +445,7 @@ func PodStatusHander(ns, largeTCName, index string) bool {
 		timeCount++
 		time.Sleep(600 * time.Millisecond)
 		if timeCount > 200 {
-			klog.Infof("[%s/%s] start more than 120s", ns, largeTCName)
+			klog.Errorf("[%s/%s] start more than 120s", ns, largeTCName)
 			break
 		}
 		var currtc *tidbv1.TidbCluster
@@ -576,6 +576,7 @@ func deletePod(largeTc *tidbv1.TidbCluster, index string) error {
 	largeTc.Annotations = anno
 
 	largeTc.Spec.TiDB.Replicas = largeTc.Spec.TiDB.Replicas - 1
+	klog.Errorf("come to delete tc !!!!!!!!!!!!Replicas:",largeTc.Spec.TiDB.Replicas)
 	err = utils.UpdateTC(largeTc, tidbv1.TiDBMemberType, false)
 	if err != nil {
 		klog.Errorf("[%s/%s] deletePod Update large TidbClusters failed", largeTc.Namespace, largeTc.Name)
@@ -616,7 +617,7 @@ func StartLargeTc(clusName, ns string, hashrate float32) (string, error) {
 	if errors.IsNotFound(err) {
 		klog.Infof("[%s/%s]------------come to create newtc------------\n", ns, largeTCName)
 		index = "0"
-		largeTc, err := CreateLargeTc(clusName, ns, largeTCName, norm)
+		largeTc, err := CreateLargeTc(clusName, ns, largeTCName, 64)
 		if err != nil {
 			klog.Errorf("[%s/%s] Create large TidbClusters failed", ns, clusName)
 			return svcName, err
@@ -628,6 +629,11 @@ func StartLargeTc(clusName, ns string, hashrate float32) (string, error) {
 			svcName = largeTCName + "-tidb-" + index + "." + largeTCName + "-tidb-" + "peer" + "." + ns + ":" + TidbPort
 			return svcName, nil
 		} else {
+			largeTc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(largeTCName)
+			if err != nil {
+				klog.Errorf("[%s/%s] get TidbClusters failed after create", ns, clusName)
+				return svcName, err
+			}
 			err = deletePod(largeTc, index)
 			if err != nil {
 				klog.Errorf("[%s/%s] deletePod failed when pod not ready", ns, clusName)
@@ -673,7 +679,7 @@ func StartLargeTc(clusName, ns string, hashrate float32) (string, error) {
 }
 
 func StopLargeTc(clusName, ns, addr string) error {
-	largeTCName := clusName + "-large"
+	largeTCName := strings.Split(addr, "-tidb-")[0]
 	largeTc, err := sldbcluster.SldbClient.PingCapLister.TidbClusters(ns).Get(largeTCName)
 	if err != nil {
 		klog.Errorf("[%s/%s] get TidbClusters failed", ns, clusName)
