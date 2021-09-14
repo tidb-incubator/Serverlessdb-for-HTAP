@@ -46,6 +46,7 @@ import (
 	"github.com/pingcap/tidb/proxy/backend"
 	proxyconfig "github.com/pingcap/tidb/proxy/config"
 	"github.com/pingcap/tidb/proxy/core/golog"
+	"github.com/pingcap/tidb/proxy/scalepb"
 	"github.com/pingcap/tidb/session/txninfo"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util"
@@ -328,8 +329,8 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 
 	var norms = []string{backend.TiDBForTP, backend.TiDBForAP}
 	for _, v := range norms {
-		Podlist := &v1.PodList{}
-		Podlist.Items = make([]v1.Pod, 0)
+		var Podlist *v1.PodList
+
 		var Pod *v1.Pod
 		var timeCount int
 		for {
@@ -339,6 +340,8 @@ func parseCluster(cfg proxyconfig.ClusterConfig) (*backend.Cluster, error) {
 				golog.Info("server", "NewServer", "wait pod ready more than 120s",0)
 				break
 			}
+			Podlist = &v1.PodList{}
+			Podlist.Items = make([]v1.Pod, 0)
 
 			if v == backend.TiDBForTP {
 				ProxyPodlist, err := GetProxyPod(cfg.ClusterName, cfg.NameSpace)
@@ -486,8 +489,8 @@ func (s *Server) Run() error {
 		s.startStatusHTTP()
 	}
 
-	//check proxy node's role.
-	//go s.CheckProxyRole()
+	//check proxy is pure compute or complex.
+	go s.CheckClusterSilence()
 
 	// flush counter
 	go s.flushCounter()
@@ -521,88 +524,54 @@ func (s *Server) runserverless() {
 	}
 }
 
-//func (s *Server) CheckProxyRole() {
-//	for {
-//		tppool := s.cluster.BackendPools[backend.TiDBForTP]
-//		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs + s.cluster.ProxyNode.ProxyCost
-//		switch {
-//		case costs < 100000:
-//			//proxy service as a pure tp type compute node, and no need other tp type tidb.
-//			if !s.cluster.ProxyNode.ProxyAsCompute {
-//				proxyAddr := "self" + "@" + DefaultProxySize
-//				if err := s.cluster.AddTidb(proxyAddr, backend.TiDBForTP); err != nil {
-//					fmt.Errorf("add proxy into tp pools failed: %s", err)
-//				} else {
-//					fmt.Println("add proxy into tp pools success when proxy as a pure compute node.")
-//				}
-//			}
-//			//todo: delete other tp type node when proxy node can deal all tp sql.
-//			//if len(tppool.Tidbs) > 1 {
-//			//	scaleReq := &scalepb.ScaleRequest{
-//			//		Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
-//			//		Namespace:   s.cfg.Proxycfg.Cluster.NameSpace,
-//			//		Hashrate:    0,
-//			//		Scaletype:   backend.TiDBForTP,
-//			//	}
-//			//	_, err := ScalerClient.ScaleCluster(context.Background(), scaleReq)
-//			//	if err != nil {
-//			//		fmt.Errorf("fail to scale in all tp tidb node but proxy node: %s", err)
-//			//	}
-//			//}
-//			fmt.Println("proxy is as pure compute node, tp cost is ", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql, "normal tp cost is ", s.cluster.BackendPools[backend.TiDBForTP].Costs)
-//
-//
-//		case costs > 1000000:
-//			//proxy service as a pure proxy node, and remove from tp type backend pools.
-//			//if len(tppool.Tidbs) > 4 {
-//				if s.cluster.ProxyNode.ProxyAsCompute {
-//					//remove proxy node from tp type backend pools.
-//					//Invoke DeleteOneTidb api.
-//					//todo: get address from config.
-//					tppool.InitBalancerAfterDeleteTidb("self")
-//					s.cluster.ProxyNode.ProxyAsCompute = false
-//				}
-//			//}
-//			if s.cluster.ProxyNode.ProxyAsCompute && len(tppool.Tidbs) == 1 {
-//				scaleReq := &scalepb.ScaleRequest{
-//					Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
-//					Namespace:   s.cfg.Proxycfg.Cluster.NameSpace,
-//					Hashrate:    1,
-//					Scaletype:   backend.TiDBForTP,
-//				}
-//				_, err := ScalerClient.ScaleCluster(context.Background(), scaleReq)
-//				if err != nil {
-//					fmt.Errorf("fail to scale out tp tidb node from 0 to 1: %s", err)
-//				}
-//			}
-//			fmt.Println("proxy is as pure proxy node, tp cost is ", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql, "normal tp cost is ", s.cluster.BackendPools[backend.TiDBForTP].Costs)
-//		default:
-//			//proxy service as a complex node which can compute as a tp type tidb and proxy request to others tidbs.
-//			if !s.cluster.ProxyNode.ProxyAsCompute {
-//				proxyAddr := "self" + "@" + DefaultProxySize
-//				if err := s.cluster.AddTidb(proxyAddr, backend.TiDBForTP); err != nil {
-//					fmt.Errorf("add proxy into tp pools failed: %s", err)
-//				} else {
-//					fmt.Println("add proxy into tp pools success when proxy as a complex compute node.")
-//				}
-//			}
-//			if s.cluster.ProxyNode.ProxyAsCompute && len(tppool.Tidbs) == 1 {
-//				scaleReq := &scalepb.ScaleRequest{
-//					Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
-//					Namespace:   s.cfg.Proxycfg.Cluster.NameSpace,
-//					Hashrate:    1,
-//					Scaletype:   backend.TiDBForTP,
-//				}
-//				_, err := ScalerClient.ScaleCluster(context.Background(), scaleReq)
-//				if err != nil {
-//					fmt.Errorf("fail to scale out tp tidb node from 0 to 1: %s", err)
-//				}
-//			}
-//			fmt.Println("proxy is as complex compute node, tp cost is", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql, "normal tp cost is ", s.cluster.BackendPools[backend.TiDBForTP].Costs)
-//		}
-//		time.Sleep(1 * time.Second)
-//	}
-//}
+func (s *Server) CheckClusterSilence() {
+	for {
+		tppool := s.cluster.BackendPools[backend.TiDBForTP]
+		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs + s.cluster.ProxyNode.ProxyCost
+		if costs < 10000 {
+			//proxy service as a pure tp type compute node, and no need other tp type tidb.
+			if !s.cluster.ProxyNode.ProxyAsCompute {
+				proxyAddr := "self" + "@" + DefaultProxySize
+				if err := s.cluster.AddTidb(proxyAddr, backend.TiDBForTP); err != nil {
+					fmt.Errorf("add proxy into tp pools failed: %s", err)
+				} else {
+					fmt.Println("add proxy into tp pools success when proxy as a pure compute node.")
+				}
+			}
+			if len(tppool.Tidbs) > 1 {
+				scaleReq := &scalepb.ScaleRequest{
+					Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
+					Namespace:   s.cfg.Proxycfg.Cluster.NameSpace,
+					Hashrate:    0,
+					Scaletype:   backend.TiDBForTP,
+				}
+				_, err := ScalerClient.ScaleCluster(context.Background(), scaleReq)
+				if err != nil {
+					fmt.Errorf("fail to scale in all tp tidb node but proxy node: %s", err)
+				}
+			}
+			fmt.Println("proxy is as pure compute node, proxy cost is ", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql, "normal tp cost is ", s.cluster.BackendPools[backend.TiDBForTP].Costs)
+
+		} else {
+			if s.cluster.ProxyNode.ProxyAsCompute && len(tppool.Tidbs) == 1 {
+				scaleReq := &scalepb.ScaleRequest{
+					Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
+					Namespace:   s.cfg.Proxycfg.Cluster.NameSpace,
+					Hashrate:    1,
+					Scaletype:   backend.TiDBForTP,
+				}
+				_, err := ScalerClient.ScaleCluster(context.Background(), scaleReq)
+				if err != nil {
+					fmt.Errorf("fail to scale out tp tidb node from 0 to 1: %s", err)
+				}
+			}
+			fmt.Println("proxy is as complex compute node, proxy cost is", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql, "normal tp cost is ", s.cluster.BackendPools[backend.TiDBForTP].Costs)
+
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+}
 
 func (s *Server) startNetworkListener(listener net.Listener, isUnixSocket bool, errChan chan error) {
 	if listener == nil {

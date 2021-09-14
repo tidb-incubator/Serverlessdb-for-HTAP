@@ -1851,6 +1851,7 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 
 	stmtcost, err := cc.ctx.GotStmtCostForProxy(ctx, stmt)
 	if err != nil {
+		fmt.Errorf("get cost err is %s\n", err)
 		return false, err
 	}
     //fmt.Printf("new sql is %s,cost is %f \n",stmt.Text(),cc.ctx.GetSessionVars().Proxy.Cost)

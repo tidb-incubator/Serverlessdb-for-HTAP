@@ -98,12 +98,12 @@ func NewServerless(cfg *config.Config, srv *Server, count *Counter) (*Serverless
 func (sl *Serverless) CheckServerless() {
 	for tidbtype, pool := range sl.proxy.cluster.BackendPools {
 		if tidbtype == backend.TiDBForAP {
-			return
+			continue
 		}
 		needcore := sl.multiScales[tidbtype].GetNeedCores(pool.Costs)
 		currentcore := sl.GetCurrentCores(tidbtype)
 		if needcore == currentcore {
-			return
+			continue
 		}
 		if needcore > currentcore {
 			sl.multiScales[tidbtype].scaleout(currentcore, needcore, tidbtype)
