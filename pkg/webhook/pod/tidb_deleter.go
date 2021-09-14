@@ -82,7 +82,7 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(payload *admitPayload) *admis
 	newpod.Labels[podForceDelete] = "true"
 	_, err = pc.kubeCli.CoreV1().Pods(newpod.Namespace).Update(newpod)
 	if err != nil {
-		klog.Errorf("[%s/%s]pod update forcedelete label failed, but admit to delete.\n", newpod.Namespace, newpod.Name)
+		klog.Errorf("[%s/%s]pod update forcedelete label failed, but admit to delete: %s\n", newpod.Namespace, newpod.Name, err)
 	}
 
 	//adminresp.Allowed = false

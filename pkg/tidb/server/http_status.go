@@ -502,14 +502,14 @@ func (s *Server) GetClustersStatus(w http.ResponseWriter, req *http.Request) {
 	//get Tidbs status
 	for _, Tidb := range cluster.BackendPools[tidbType].Tidbs {
 		//get Tidb counter
-		idleConns, cacheConns, pushConnCount, popConnCount, usingConnCount := Tidb.ConnCount()
+		idleConns, cacheConns, pushConnCount, popConnCount, usingConnCount, maxConnNum := Tidb.ConnCount()
 
 		TidbStatus.Cluster = cluster.Cfg.ClusterName
 		TidbStatus.Address = Tidb.Addr()
 		TidbStatus.Type = "Tidb"
 		TidbStatus.Status = Tidb.State()
 		TidbStatus.LastPing = fmt.Sprintf("%v", time.Unix(Tidb.GetLastPing(), 0))
-		//TidbStatus.MaxConn = cluster.Cfg.MaxConnNum
+		TidbStatus.MaxConn = maxConnNum
 		TidbStatus.IdleConn = idleConns
 		TidbStatus.CacheConn = cacheConns
 		TidbStatus.PushConnCount = pushConnCount

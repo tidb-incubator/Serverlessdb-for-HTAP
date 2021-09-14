@@ -166,7 +166,18 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 	case cost > 1000000000:
 		//Predicate SQL is belong to Big AP type
 		//invoke grpc api of starting a new pod to handle this request.
-		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, DefaultBigSize, true, "")
+		var tempSize float32
+		switch {
+		case cost < 10000000000:
+			tempSize = 16.0
+		case cost > 10000000000 && cost < 100000000000:
+			tempSize = 32.0
+		case cost > 100000000000:
+			tempSize = 64.0
+		default:
+			tempSize = DefaultBigSize
+		}
+		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, tempSize, true, "")
 		if err != nil {
 			return nil, err
 		}

@@ -1922,11 +1922,11 @@ func ClusterStatusCheck(sldb *v1alpha1.ServerlessDB, sldbType tcv1.MemberType) (
 		return nil, err
 	}
 	tidbStatus := GetTidbStatus(tclus)
-	silentCond := util.GetServerlessDBCondition(sldb.Status, v1alpha1.TiDBSilence)
+	//silentCond := util.GetServerlessDBCondition(sldb.Status, v1alpha1.TiDBSilence)
 	restartCond := util.GetServerlessDBCondition(sldb.Status, v1alpha1.TiDBRestart)
 	if ((tidbStatus != tcv1.NormalPhase || len(sldb.Status.Rule) != 0) && sldbType == tcv1.TiDBMemberType) ||
 		(tclus.OldTc[0].Tc.Status.TiKV.Phase != tcv1.NormalPhase && sldbType == tcv1.TiKVMemberType) ||
-		sldb.Status.Phase != v1alpha1.PhaseAvailable || sldb.Spec.Paused == true || silentCond != nil || restartCond != nil {
+		sldb.Status.Phase != v1alpha1.PhaseAvailable || sldb.Spec.Paused == true ||  restartCond != nil {
 		klog.Infof("[%s/%s] is not premit scaler Phase %s,len rule %v, sldbType %v,tidb phase %v,tikv phase %v\n",
 			sldb.Namespace, sldb.Name, sldb.Status.Phase, sldb.Status.Rule, sldbType, tidbStatus, tclus.OldTc[0].Tc.Status.TiKV.Phase)
 		return nil, nil

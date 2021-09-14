@@ -149,10 +149,10 @@ func (db *DB) State() string {
 	return state
 }
 
-func (db *DB) ConnCount() (int, int, int64, int64,int64) {
+func (db *DB) ConnCount() (int, int, int64, int64, int64, int) {
 	db.RLock()
 	defer db.RUnlock()
-	return len(db.idleConns), len(db.cacheConns), db.pushConnCount, db.popConnCount,db.usingConnsCount
+	return len(db.idleConns), len(db.cacheConns), db.pushConnCount, db.popConnCount,db.usingConnsCount, db.maxConnNum
 }
 
 func (db *DB) Close() error {
