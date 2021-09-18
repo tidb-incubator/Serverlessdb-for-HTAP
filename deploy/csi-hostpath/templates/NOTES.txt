@@ -1,0 +1,3 @@
+Make sure csi-hostpath components are running:
+
+    kubectl get pods --namespace {{ .Release.Namespace }}

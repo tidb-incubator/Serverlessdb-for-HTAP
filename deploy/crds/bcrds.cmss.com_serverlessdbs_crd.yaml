@@ -3,17 +3,6 @@ kind: CustomResourceDefinition
 metadata:
   name: serverlessdbs.bcrds.cmss.com
 spec:
-  additionalPrinterColumns:
-    - JSONPath: .status.phase
-      description: The phase of sldb cluster
-      name: Phase
-      type: string
-    - JSONPath: .metadata.creationTimestamp
-      name: Age
-      type: date
-    - JSONPath: .status.conditions[0].type
-      name: Condition
-      type: string
   group: bcrds.cmss.com
   names:
     kind: ServerlessDB
@@ -44,99 +33,6 @@ spec:
         spec:
           description: ServerlessDBSpec defines the desired state of ServerlessDB
           properties:
-            freeze:
-              description: Prevent external connections to tidb server
-              type: boolean
-            imagePullPolicy:
-              description: PullPolicy describes a policy for if/when to pull a container
-                image
-              type: string
-            maxValue:
-              properties:
-                component:
-                  properties:
-                    storageClassName:
-                      description: The storageClassName of the persistent volume for
-                        Backup data storage. Defaults to Kubernetes default storage
-                        class.
-                      type: string
-                    storageSize:
-                      description: StorageSize is the request storage size
-                      type: string
-                    type:
-                      description: StorageSize is the request storage size for backup
-                        job
-                      type: string
-                  type: object
-                hashRate:
-                  type: string
-              type: object
-            minResource:
-              description: ResourceRequirements describes the compute resource requirements.
-              properties:
-                limits:
-                  additionalProperties:
-                    type: string
-                  description: 'Limits describes the maximum amount of compute resources
-                    allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
-                  type: object
-                requests:
-                  additionalProperties:
-                    type: string
-                  description: 'Requests describes the minimum amount of compute resources
-                    required. If Requests is omitted for a container, it defaults
-                    to Limits if that is explicitly specified, otherwise to an implementation-defined
-                    value. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
-                  type: object
-              type: object
-            normalResource:
-              description: ResourceRequirements describes the compute resource requirements.
-              properties:
-                limits:
-                  additionalProperties:
-                    type: string
-                  description: 'Limits describes the maximum amount of compute resources
-                    allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
-                  type: object
-                requests:
-                  additionalProperties:
-                    type: string
-                  description: 'Requests describes the minimum amount of compute resources
-                    required. If Requests is omitted for a container, it defaults
-                    to Limits if that is explicitly specified, otherwise to an implementation-defined
-                    value. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
-                  type: object
-              type: object
-            paused:
-              description: Indicates that the severlessdb is paused and will not be
-                processed by the controller.
-              type: boolean
-            proxy:
-              properties:
-                silentPeriod:
-                  description: Defaults to "0".
-                  type: string
-              type: object
-            rateOfScaleDown:
-              type: string
-            rule:
-              additionalProperties:
-                properties:
-                  endTime:
-                    format: date-time
-                    type: string
-                  metric:
-                    properties:
-                      hashRate:
-                        type: string
-                    type: object
-                  period:
-                    type: string
-                  startTime:
-                    format: date-time
-                    type: string
-                type: object
-              type: object
             scaleIn:
               type: string
             scaleOut:

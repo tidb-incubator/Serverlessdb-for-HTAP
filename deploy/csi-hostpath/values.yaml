@@ -1,0 +1,33 @@
+csiAttacher:
+  attacherImage: "quay.io/k8scsi/csi-attacher:v3.0.0-rc1"
+
+csiPlugin:
+  driverImage: "quay.io/k8scsi/csi-node-driver-registrar:v1.3.0"
+  lvmImage: "serverlessdb/lvm:v1"
+
+csiProvisioner:
+  providerImage: "serverlessdb/lvm-provider:v1"
+
+csiResizer:
+  resizerImage: "quay.io/k8scsi/csi-resizer:v0.5.0"
+
+csiCommon:
+  csiHostpath: "/apps/data/kubelet/plugins/csi-hostpath"
+  mountpointDir: "/apps/data/kubelet/pods"
+  pluginsDir: "/apps/data/kubelet/plugins"
+  registryDir: "/apps/data/kubelet/plugins_registry"
+  datadir: "/apps/data/csi-hostpath-data/"
+  ## affinity defines pod scheduling rules,affinity default settings is empty.
+  ## please read the affinity document before set your scheduling rule:
+  ## ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity
+  affinity: {}
+  ## nodeSelector ensure pods only assigning to nodes which have each of the indicated key-value pairs as labels
+  ## ref:https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
+  nodeSelector: {}
+  ## Tolerations are applied to pods, and allow pods to schedule onto nodes with matching taints.
+  ## refer to https://kubernetes.io/docs/concepts/configuration/taint-and-toleration
+  tolerations: []
+  # - key: node-role
+  #   operator: Equal
+  #   value: sldb-operator-operator
+  #   effect: "NoSchedule"

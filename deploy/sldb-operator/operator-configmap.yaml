@@ -56,9 +56,9 @@ data:
         cpu: "2"
         memory: 4Gi
       limits:
-        cpu: "2"
-        memory: 4Gi
-      image: "localhost:5000/serverlessdb-for-htap/proxy:v1.0.0"
+        cpu: "4"
+        memory: 16Gi
+      image: "serverlessdb/proxy:v1"
 
 
 

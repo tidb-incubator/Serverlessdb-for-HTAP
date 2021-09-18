@@ -1,0 +1,124 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tidb-grafana
+  namespace: monitoring-system
+data:
+  dashboards.yaml: |-
+    {
+        "apiVersion": 1,
+        "providers": [
+            {
+                "folder": "",
+                "name": "0",
+                "options": {
+                    "path": "/data/dashboards"
+                },
+                "orgId": 1,
+                "type": "file"
+            }
+        ]
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tidb-grafana
+  namespace: monitoring-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tidb-grafana
+  template:
+    metadata:
+      labels:
+        app: tidb-grafana
+    spec:
+      containers:
+      - env:
+        - name: GF_PATHS_DATA
+          value: /data/grafana
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: admin
+        - name: TZ
+          value: UTC
+        image: grafana/grafana:6.1.6
+        imagePullPolicy: IfNotPresent
+        name: tidb-grafana
+        ports:
+        - containerPort: 3000
+          name: grafana
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /data
+          name: grafana-data
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: grafana-data
+          subPath: datasources
+        - mountPath: /etc/grafana/provisioning/dashboards
+          name: dashboards-config
+      initContainers:
+      - command:
+        - /bin/sh
+        - -c
+        - |-
+          mkdir -p /data/prometheus /data/grafana
+          chmod 777 /data/prometheus /data/grafana
+          /usr/bin/init.sh
+        env:
+        - name: TIDB_CLUSTER_NAME
+          value: rtst
+        - name: TIDB_CLUSTER_NAMESPACE
+          value: default
+        - name: TIDB_ENABLE_BINLOG
+          value: "false"
+        - name: TIDB_VERSION
+          value: tidb:v5.1.1
+        - name: PROM_CONFIG_PATH
+          value: /data/rules
+        - name: PROM_PERSISTENT_DIR
+          value: /data
+        - name: GF_TIDB_PROMETHEUS_URL
+          value: http://prometheus-server
+        - name: GF_PROVISIONING_PATH
+          value: /data/dashboards
+        - name: GF_DATASOURCE_PATH
+          value: /etc/grafana/provisioning/datasources
+        image: pingcap/tidb-monitor-initializer:v5.1.1
+        imagePullPolicy: IfNotPresent
+        name: monitor-initializer
+        volumeMounts:
+        - mountPath: /data
+          name: grafana-data
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: grafana-data
+          subPath: datasources
+      volumes:
+      - emptyDir: {}
+        name: grafana-data
+      - configMap:
+          name: tidb-grafana
+        name: dashboards-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tidb-grafana
+  namespace: monitoring-system
+spec:
+  type: NodePort
+  selector:
+    app: tidb-grafana
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 3000
+      nodePort: 30031
+
