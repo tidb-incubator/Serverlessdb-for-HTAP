@@ -1,0 +1,39 @@
+{{- if (hasKey .Values.scheduler "create" | ternary .Values.scheduler.create true) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scheduler-config
+  labels:
+    app.kubernetes.io/name: {{ template "chart.name" . }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: scheduler
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+"  "_" }}
+data:
+  scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1alpha1
+    kind: KubeSchedulerConfiguration
+    schedulerName: tidb-scheduler
+    leaderElection:
+      leaderElect: true
+      lockObjectName: lvm-scheduler
+      lockObjectNamespace: tidb-admin
+    algorithmSource:
+      policy:
+        configMap:
+          namespace: tidb-admin
+          name: tidb-scheduler-policy
+    plugins:
+      filter:
+        enabled:
+        - name: "lvm"
+      score:
+        enabled:
+        - name: "lvm"
+      postFilter:
+        enabled:
+        - name: "lvm"
+    pluginConfig:
+    - name: "lvm"
+      args: {"master": "master", "kubeconfig": "kubeconfig"}
+{{- end }}

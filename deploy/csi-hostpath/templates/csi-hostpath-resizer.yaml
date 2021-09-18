@@ -1,0 +1,81 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: csi-hostpath-resizer
+  labels:
+    app: csi-hostpath-resizer
+    app.kubernetes.io/name: {{ template "chart.name" . }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: csi
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+"  "_" }}
+spec:
+  selector:
+    app: csi-hostpath-resizer
+  ports:
+    - name: dummy
+      port: 12345
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: csi-hostpath-resizer
+  labels:
+    app.kubernetes.io/name: {{ template "chart.name" . }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: csi-hostpath
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+"  "_" }}
+spec:
+  serviceName: "csi-hostpath-resizer"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-hostpath-resizer
+  template:
+    metadata:
+      labels:
+        app: csi-hostpath-resizer
+    spec:
+      serviceAccountName: lvm-controller
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - csi-hostpathplugin
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: csi-resizer
+        image: {{ .Values.csiResizer.resizerImage }}
+        args:
+          - -v=5
+          - -csi-address=/csi/csi.sock
+        securityContext:
+          # This is necessary only for systems with SELinux, where
+          # non-privileged sidecar containers cannot access unix domain socket
+          # created by privileged CSI driver container.
+          privileged: true
+        volumeMounts:
+        - mountPath: /csi
+          name: socket-dir
+      volumes:
+      - hostPath:
+          path: {{ .Values.csiCommon.csiHostpath }}
+          type: DirectoryOrCreate
+        name: socket-dir
+    {{- with .Values.csiCommon.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.csiCommon.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.csiCommon.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}

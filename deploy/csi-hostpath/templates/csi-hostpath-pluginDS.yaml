@@ -1,0 +1,147 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: csi-hostpathplugin
+  labels:
+    app: csi-hostpathplugin
+    app.kubernetes.io/name: {{ template "chart.name" . }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: csi-hostpath
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+"  "_" }}
+spec:
+  selector:
+    app: csi-hostpathplugin
+  ports:
+    - name: dummy
+      port: 12345
+---
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: csi-hostpathplugin
+  labels:
+    app.kubernetes.io/name: {{ template "chart.name" . }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: csi
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+"  "_" }}
+spec:
+  selector:
+    matchLabels:
+      app: csi-hostpathplugin
+  template:
+    metadata:
+      labels:
+        app: csi-hostpathplugin
+    spec:
+      serviceAccount: lvm-controller
+      serviceAccountName: lvm-controller
+      tolerations:
+        - operator: Exists
+      hostNetwork: true
+      hostPID: true
+      priorityClassName: system-node-critical
+      containers:
+        - name: node-driver-registrar
+          image: {{ .Values.csiPlugin.driverImage }}
+          args:
+            - --v=5
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path={{ .Values.csiCommon.csiHostpath }}/csi.sock
+          securityContext:
+            # This is necessary only for systems with SELinux, where
+            # non-privileged sidecar containers cannot access unix domain socket
+            # created by privileged CSI driver container.
+            privileged: true
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - mountPath: /registration
+              name: registration-dir
+            - mountPath: /csi-data-dir
+              name: csi-data-dir
+
+        - name: hostpath
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+            allowPrivilegeEscalation: true
+            runAsUser: 0
+          image: {{ .Values.csiPlugin.lvmImage }}
+          args:
+            - --drivername=hostpath.csi.k8s.io
+            - --v=5
+            - --endpoint=$(CSI_ENDPOINT)
+            - --nodeid=$(KUBE_NODE_NAME)
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          ports:
+            - containerPort: 9898
+              name: healthz
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - mountPath: {{ .Values.csiCommon.mountpointDir }}
+              mountPropagation: Bidirectional
+              name: mountpoint-dir
+            - mountPath: {{ .Values.csiCommon.pluginsDir }}
+              mountPropagation: Bidirectional
+              name: plugins-dir
+            - mountPath: /csi-data-dir
+              name: csi-data-dir
+            - mountPath: /dev
+              name: dev-dir
+      volumes:
+        - hostPath:
+            path: {{ .Values.csiCommon.csiHostpath }}
+            type: DirectoryOrCreate
+          name: socket-dir
+        - hostPath:
+            path: {{ .Values.csiCommon.mountpointDir }}
+            type: DirectoryOrCreate
+          name: mountpoint-dir
+        - hostPath:
+            path: {{ .Values.csiCommon.registryDir }}
+            type: Directory
+          name: registration-dir
+        - hostPath:
+            path: {{ .Values.csiCommon.pluginsDir }}
+            type: Directory
+          name: plugins-dir
+        - hostPath:
+            # 'path' is where PV data is persisted on host.
+            # using /tmp is also possible while the PVs will not available after plugin container recreation or host reboot
+            path: {{ .Values.csiCommon.datadir }}
+            type: DirectoryOrCreate
+          name: csi-data-dir
+        - hostPath:
+            path: /dev
+            type: Directory
+          name: dev-dir
+    {{- with .Values.csiCommon.nodeSelector }}
+    nodeSelector:
+  {{ toYaml . | indent 8 }}
+  {{- end }}
+  {{- with .Values.csiCommon.affinity }}
+affinity:
+  {{ toYaml . | indent 8 }}
+  {{- end }}
+  {{- with .Values.csiCommon.tolerations }}
+tolerations:
+  {{ toYaml . | indent 8 }}
+  {{- end }}
