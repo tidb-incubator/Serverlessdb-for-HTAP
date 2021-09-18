@@ -20,6 +20,7 @@
 
   ## Getting Started
 
+  [handbook](./docs/htap_deploy_handbook.docx)
 
   ## Code of Conduct
 
