@@ -243,8 +243,10 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 	//fmt.Printf("prepare sql is %s,cost is %f\n", est.Text, tidbtext.ctx.GetSessionVars().Proxy.Cost)
 
 	cluster := cc.server.cluster
-	conn, err := cc.getBackendConn(cluster)
-	defer cc.closeConn(conn, false)
+	conn, err := cc.getBackendConn(cluster,true)
+	if conn != nil {
+		defer cc.closeConn(conn, false)
+	}
 	if err != nil {
 		return err
 	}
@@ -252,7 +254,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 	if !conn.IsProxySelf() {
 		err = cc.bindStmtArgs(tidbtext, argsproxy, stmt.BoundParams(), nullBitmaps, stmt.GetParamsType(), paramValues)
 		//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
-		err = cc.handlePrepare(ctx, conn, preparedStmt, tidbtext.sql, stmt.GetParamsType(), argsproxy)
+		err = cc.handlePrepare(ctx, conn, preparedStmt,tidbtext,argsproxy)
 		return err
 	} else {
 		ctx = context.WithValue(ctx, execdetails.StmtExecDetailKey, &execdetails.StmtExecDetails{})
@@ -708,12 +710,22 @@ func (cc *clientConn) handleStmtClose(data []byte) (err error) {
 	if len(data) < 4 {
 		return
 	}
-
 	stmtID := int(binary.LittleEndian.Uint32(data[0:4]))
 	stmt := cc.ctx.GetStatement(stmtID)
 	if stmt != nil {
-		return stmt.Close()
+		err = cc.cleanPrePare(uint32(stmtID))
+		if err != nil {
+			return
+		}
+		err = stmt.Close()
+		if err == nil {
+			stmts := cc.ctx.GetMapStatement()
+			if len(stmts) == 0 {
+				cc.prepareConn = nil
+			}
+		}
 	}
+
 	return
 }
 

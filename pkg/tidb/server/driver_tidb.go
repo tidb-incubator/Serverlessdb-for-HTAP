@@ -69,6 +69,8 @@ type TiDBStatement struct {
 	rs          ResultSet
 	s           ast.StmtNode
 	sql         string
+	tidbId      uint32
+	columns     int
 }
 
 // ID implements PreparedStatement ID method.
@@ -309,6 +311,10 @@ func (tc *TiDBContext) GetStatement(stmtID int) PreparedStatement {
 	return nil
 }
 
+func (tc *TiDBContext) GetMapStatement() map[int]*TiDBStatement {
+	return tc.stmts
+}
+
 // Prepare implements QueryCtx Prepare method.
 func (tc *TiDBContext) Prepare(sql string) (statement PreparedStatement, columns, params []*ColumnInfo, err error) {
 	stmtID, paramCount, fields, err := tc.Session.PrepareStmt(sql)
@@ -330,6 +336,7 @@ func (tc *TiDBContext) Prepare(sql string) (statement PreparedStatement, columns
 		boundParams: make([][]byte, paramCount),
 		ctx:         tc,
 		s:           stmtNode,
+		columns:  len(fields),
 	}
 	statement = stmt
 	columns = make([]*ColumnInfo, len(fields))

@@ -15,6 +15,7 @@
 package backend
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -72,27 +73,27 @@ func Open(addr string, user string, password string, dbName string,weight float6
 	db.password = password
 	db.db = dbName
 
-	conum:=int(weight*100)
+	var conum int
+	if weight < 1.0 {
+		conum = 512
+	} else {
+		conum = int(weight * 200)
+	}
 	if conum> DefaultMaxConnNum{
 		db.maxConnNum = DefaultMaxConnNum*2
 		db.InitConnNum = DefaultMaxConnNum
 	}else{
-		db.maxConnNum = conum*2
+		max := conum * 10
+		if max > (DefaultMaxConnNum*2) {
+			max = DefaultMaxConnNum * 2
+		}
+		db.maxConnNum = max
+		if conum > DefaultMaxConnNum {
+			conum = DefaultMaxConnNum
+		}
 		db.InitConnNum = conum
 	}
 
-
-	/*if 0 < maxConnNum {
-		db.maxConnNum = maxConnNum
-		if db.maxConnNum < 360 {
-			db.InitConnNum = db.maxConnNum
-		} else {
-			db.InitConnNum = db.maxConnNum / 2
-		}
-	} else {
-		db.maxConnNum = DefaultMaxConnNum
-		db.InitConnNum = InitConnCount
-	}*/
 	//check connection
 	db.checkConn, err = db.newConn()
 	if err != nil {
@@ -387,6 +388,8 @@ func (db *DB) GetConnFromIdle(cacheConns, idleConns chan *Conn) (*Conn, error) {
 				return nil, errors.ErrBadConn
 			}
 		}
+	case <-time.After(time.Second):
+		return nil,errors.ErrGetConnTimeout
 	}
 	return co, nil
 }
@@ -420,6 +423,11 @@ func (db *DB) PushConn(co *Conn, err error) {
 type BackendConn struct {
 	*Conn
 	db *DB
+	bindConn bool
+}
+
+func (p *BackendConn) GetBindConn() bool{
+	return p.bindConn
 }
 
 func (p *BackendConn) IsProxySelf() bool {
@@ -443,11 +451,12 @@ func (p *BackendConn) SetNoDelayFlase() {
 	tcptemp.SetNoDelay(false)
 }
 
-
-
 func (p *BackendConn) Close() {
 	atomic.AddInt64(&p.db.usingConnsCount,-1)
 	//fmt.Printf("using conn is %d \n",p.db.usingConnsCount)
+	if p.db.usingConnsCount < 0 {
+		fmt.Printf("using conn is %d initnum %d\n",p.db.usingConnsCount,p.db.InitConnNum)
+	}
 	if p != nil && p.Conn != nil {
 		if p.Conn.pkgErr != nil {
 			p.db.closeConn(p.Conn)
@@ -458,13 +467,20 @@ func (p *BackendConn) Close() {
 	}
 }
 
-func (db *DB) GetConn() (*BackendConn, error) {
+func (db *DB) GetConn(bindFlag bool) (*BackendConn, error) {
 	c, err := db.PopConn()
 	if err != nil {
 		return nil, err
 	}
 	atomic.AddInt64(&db.usingConnsCount,1)
-	return &BackendConn{c, db}, nil
+	//80% connections pool
+	poolConnNum := int64(db.maxConnNum * 4/5)
+	if db.usingConnsCount > poolConnNum {
+		if bindFlag == true {
+			bindFlag = false
+		}
+	}
+	return &BackendConn{c, db,bindFlag}, nil
 }
 
 func (db *DB) SetLastPing() {

@@ -56,7 +56,7 @@ type Cluster struct {
 type Pool struct {
 	ReadyLock sync.Mutex
 	sync.RWMutex
-
+	CurVersion uint64
 	Tidbs         []*DB
 	LastTidbIndex int
 	RoundRobinQ   []int
@@ -80,34 +80,98 @@ func (cluster *Cluster) CheckCluster() {
 	}
 }
 
-func (cluster *Cluster) GetTidbConn(cost int64) (*BackendConn, error) {
-
+func (cluster *Cluster)getConn(ty string,cost int64,bindFlag bool) (*BackendConn, error) {
+	pool := cluster.BackendPools[ty]
+	if ty == TiDBForAP {
+		bindFlag = false
+	}
+	var i int
 	indicate := "qps"
-	db, err := cluster.GetNextTidb(indicate, cost)
-	if err != nil {
-		return nil, err
+	var db *DB
+	var err error
+	for ;i<30;i++ {
+		pool.Lock()
+		//if cluster.ProxyNode.IsPureCompute && len(pool.Tidbs) == 1 {
+		if len(pool.Tidbs) == 1 {
+			db = pool.Tidbs[0]
+		} else {
+			db, err = pool.GetNextDB(indicate)
+			if err != nil {
+				pool.Unlock()
+				return nil, err
+			}
+		}
+		pool.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		if db == nil {
+			return nil, errors.ErrNoTidbDB
+		}
+		if atomic.LoadInt32(&(db.state)) == Down {
+			return nil, errors.ErrTidbDown
+		}
+		if db.Self {
+			atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+			return &BackendConn{db: db}, nil
+		} else {
+			var backCon *BackendConn
+			backCon, err = db.GetConn(bindFlag)
+			if err != nil && err.Error() == errors.ErrGetConnTimeout.Error() {
+				continue
+			} else {
+				atomic.AddInt64(&pool.Costs, cost)
+				return backCon, err
+			}
+		}
 	}
-	if db == nil {
-		return nil, errors.ErrNoTidbDB
-	}
+	return nil,fmt.Errorf(ty + " get Connection Timeout")
+}
 
-	if db.Self {
-		return &BackendConn{db: db}, nil
-	}
+func (cluster *Cluster) GetTidbConn(cost int64,bindFlag bool) (*BackendConn, error) {
 
-	if db.dbType == BigCost {
+
+	//db, err := cluster.GetNextTidb(indicate, cost,bindFlag)
+	//Distinguish SQL types based on costs
+	var db *DB
+	switch {
+	case cost <= 10000:
+		//Predicate SQL is belong to TP type
+		return cluster.getConn(TiDBForTP, cost, bindFlag)
+
+	case cost > 1000000000:
+		//Predicate SQL is belong to Big AP type
+		//invoke grpc api of starting a new pod to handle this request.
+		var tempSize float32
+		switch {
+		case cost < 10000000000:
+			tempSize = 16.0
+		case cost > 10000000000 && cost < 100000000000:
+			tempSize = 32.0
+		case cost > 100000000000:
+			tempSize = 64.0
+		default:
+			tempSize = DefaultBigSize
+		}
+		resp, err := ScaleTempTidb(cluster.Cfg.NameSpace, cluster.Cfg.ClusterName, tempSize, true, "")
+		if err != nil {
+			return nil, err
+		}
+		db, _ = GetBigCostDB(resp.GetStartAddr(), cluster.Cfg.User, cluster.Cfg.Password, "")
+		if atomic.LoadInt32(&(db.state)) == Down {
+			return nil, errors.ErrTidbDown
+		}
 		conn, err := db.newConn()
 		if err != nil {
 			fmt.Println("err is ", err)
 			return nil, errors.ErrConnIsNil
 		}
-		return &BackendConn{conn, db}, nil
-	}
-	if atomic.LoadInt32(&(db.state)) == Down {
-		return nil, errors.ErrTidbDown
-	}
+		return &BackendConn{Conn: conn, db: db}, nil
 
-	return db.GetConn()
+	default:
+		//choose AP tidb pools
+		return cluster.getConn(TiDBForAP, cost, bindFlag)
+	}
 }
 
 func (cluster *Cluster) checkTidbs() {
@@ -222,6 +286,7 @@ func (cluster *Cluster) AddTidb(addr, tidbType string) error {
 		}
 	}
 	pool.InitBalancer()
+	pool.CurVersion++
 	return nil
 }
 
@@ -304,6 +369,7 @@ func (cluster *Cluster) InitBalancerAfterDeleteTidb(addr, tidbType string) (*DB,
 		}
 	}
 	pool.InitBalancer()
+	pool.CurVersion++
 	return he3db, nil
 }
 

@@ -29,6 +29,39 @@ type Stmt struct {
 
 	params  int
 	columns int
+	bindConn bool
+}
+
+func (s *Stmt) SetBindConn(bindConn bool) {
+	s.bindConn = bindConn
+}
+
+func (s *Stmt) SetParamNum(params int) {
+	s.params = params
+}
+
+func (s *Stmt) SetConn(conn *Conn) {
+	s.conn = conn
+}
+
+func (s *Stmt) SetId(id uint32) {
+	s.id = id
+}
+
+func (s *Stmt) SetColums(colums int) {
+	s.columns = colums
+}
+
+func (s *Stmt) SetQuery(query string) {
+	s.query = query
+}
+
+func (s *Stmt) BindConn() bool {
+	return s.bindConn
+}
+
+func (s *Stmt) Query() string {
+	return s.query
 }
 
 func (s *Stmt) ParamNum() int {

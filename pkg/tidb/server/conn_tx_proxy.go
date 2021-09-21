@@ -14,10 +14,46 @@
 
 package server
 
+import (
+	"fmt"
+	"github.com/pingcap/tidb/proxy/mysql"
+)
+
 func (c *clientConn) isInTransaction() bool {
 
 	return c.ctx.GetSessionVars().InTxn()
 
+}
+
+
+func (c *clientConn) isPrepare() bool {
+	return c.ctx.GetSessionVars().GetStatusFlag(mysql.SERVER_STATUS_PREPARE)
+}
+
+func (c *clientConn) cleanPrePare(id uint32) error {
+	if c.prepareConn == nil {
+		return fmt.Errorf("prepareConn has been closed")
+	}
+	if c.prepareConn.IsProxySelf() {
+		return nil
+	}
+	c.prepareConn.ClosePrepare(id)
+	stmts := c.ctx.GetMapStatement()
+	if len(stmts) > 1 {
+		return nil
+	}
+	//c.s.Close()
+	c.ctx.GetSessionVars().SetStatusFlag(mysql.SERVER_STATUS_PREPARE, false)
+	if c.ctx.GetSessionVars().InTxn() == false {
+		c.prepareConn.SetNoDelayFlase()
+		c.closeConn(c.prepareConn,false)
+	}
+	c.prepareConn = nil
+	return nil
+}
+
+func (c *clientConn) setPrepare() {
+	c.ctx.GetSessionVars().SetStatusFlag(mysql.SERVER_STATUS_PREPARE,true)
 }
 
 func (c *clientConn) isAutoCommit() bool {
@@ -67,26 +103,23 @@ func (c *clientConn) commit() (err error) {
 			}
 			co.SetNoDelayFlase()
 		}
-
-		co.Close()
+		if c.isPrepare() == false {
+			co.Close()
+		}
 	}
-		c.txConn = nil
+	c.txConn = nil
 	return
 }
 
 func (c *clientConn) commitInProxy() (err error) {
 	if co := c.txConn; co != nil {
-		co.Close()
+		if c.isPrepare() == false {
+			co.Close()
+		}
 	}
-
 	c.txConn = nil
 	return
 }
-
-
-
-
-
 
 func (c *clientConn) rollback() (err error) {
 	//c.status &= ^mysql.SERVER_STATUS_IN_TRANS
@@ -99,11 +132,10 @@ func (c *clientConn) rollback() (err error) {
 			}
 			co.SetNoDelayFlase()
 		}
-
-		co.Close()
-
+		if c.isPrepare() == false {
+			co.Close()
+		}
 	}
-
 	c.txConn = nil
 	return
 }
@@ -111,9 +143,10 @@ func (c *clientConn) rollback() (err error) {
 func (c *clientConn) rollbackInProxy() (err error) {
 	//fmt.Printf("rollback is %+v",c.txConn)
 	if co := c.txConn; co != nil {
-		co.Close()
+		if c.isPrepare() == false {
+			co.Close()
+		}
 	}
-
 	c.txConn = nil
 	return
 }

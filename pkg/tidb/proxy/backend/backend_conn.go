@@ -383,18 +383,25 @@ func (c *Conn) GetAddr() string {
 	return c.addr
 }
 
-func (c *Conn) Execute(command string,paramtype []byte,args ...interface{}) (*mysql.Result, error) {
+func (c *Conn) Execute(proxyS *Stmt,paramsType []byte,args ...interface{}) (*mysql.Result, error) {
 	if len(args) == 0 {
-		return c.exec(command)
+		return c.exec(proxyS.query)
 	} else {
-		if s, err := c.Prepare(command); err != nil {
-			return nil, err
+		if proxyS.BindConn() == false {
+			if s, err := c.Prepare(proxyS.query); err != nil {
+				return nil, err
+			} else {
+				var r *mysql.Result
+				r, err = s.Execute(paramsType, args...)
+				s.Close()
+				return r, err
+			}
 		} else {
+			//bind conn
 			var r *mysql.Result
-			r, err = s.Execute(paramtype,args...)
-			s.Close()
-
-			return r, err
+			var err error
+			r, err = proxyS.Execute(paramsType,args...)
+			return r,err
 		}
 	}
 }

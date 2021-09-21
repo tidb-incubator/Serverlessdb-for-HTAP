@@ -109,7 +109,7 @@ func UpdateLastData(name string, namesp string, data *ScalerData, ty int) {
 	ptr.ScalerCurtime = data.ScalerCurtime
 	if ty == ScalerOut {
 		//60s find load fall to  low level，ScalerIn
-		if ptr.FirstExpandTime != 0 && ptr.ScalerCurtime-ptr.FirstExpandTime > 60 {
+		if ptr.FirstExpandTime != 0 &&  ptr.ScalerCurtime - ptr.FirstExpandTime > 60 {
 			if data.ScalerNeedCore < ptr.ScalerNeedCore {
 				ptr.ScalerNeedCore = data.ScalerNeedCore
 				ptr.ScalerFlag = ScalerIn
@@ -1721,6 +1721,12 @@ func getMidwareAndScalerSyncStatus(podList []*corev1.Pod, name, namesp string, s
 	for _, pod := range podList {
 		var podExistInMidWare = true
 		if strings.Contains(clusAddr, pod.Name) != true && IsPodReady(pod) == true {
+			//webhook delete pod ,no need to add
+			if v,ok := pod.Labels["predelete"];ok {
+				if v == "true" {
+					continue
+				}
+			}
 			podExistInMidWare = false
 		}
 		if podExistInMidWare == false {
