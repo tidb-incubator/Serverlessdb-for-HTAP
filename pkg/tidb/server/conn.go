@@ -197,6 +197,16 @@ type clientConn struct {
 
 	//save conn in trancation for proxy
 	txConn *backend.BackendConn
+	curVersion uint64
+	prepareConn *backend.BackendConn
+}
+
+func (cc *clientConn) GetCurVersion() uint64 {
+	return cc.curVersion
+}
+
+func (cc *clientConn) SetCurVersion(version uint64)  {
+	cc.curVersion = version
 }
 
 func (cc *clientConn) String() string {
@@ -914,8 +924,12 @@ func (cc *clientConn) initConnect(ctx context.Context) error {
 // it will be recovered and log the panic error.
 // This function returns and the connection is closed if there is an IO error or there is a panic.
 func (cc *clientConn) Run(ctx context.Context) {
+	done := make(chan bool,1)
+	closeFlag := false
 	const size = 4096
 	defer func() {
+		closeFlag = true
+		close(done)
 		r := recover()
 		if r != nil {
 			buf := make([]byte, size)
@@ -936,6 +950,46 @@ func (cc *clientConn) Run(ctx context.Context) {
 		}
 	}()
 
+	var start time.Time
+	var block bool
+	//check autoscaler,block more than 3s
+	go func() {
+		for {
+			time.Sleep(time.Second)
+			cluster := cc.server.cluster
+			if pool,ok := cluster.BackendPools[backend.TiDBForTP];ok {
+				if block == true && time.Since(start).Seconds() > 3.0 {
+					if cc.curVersion == pool.CurVersion || cc.prepareConn == nil {
+						continue
+					}
+					select {
+					case msg, ok := <-done:
+						if !ok {
+							return
+						}
+						if cc.isPrepare() == true && cc.prepareConn != nil &&
+							cc.prepareConn.GetBindConn() && cc.txConn == nil &&
+							cc.curVersion != pool.CurVersion && !cc.prepareConn.IsProxySelf() {
+							stmts := cc.ctx.GetMapStatement()
+							for _, v := range stmts {
+								cc.prepareConn.ClosePrepare(v.tidbId)
+							}
+							cc.prepareConn.SetNoDelayFlase()
+						}
+						if cc.prepareConn != nil {
+							cc.prepareConn.Close()
+							cc.prepareConn = nil
+						}
+						done <- msg
+					}
+				}
+			}
+			if closeFlag == true {
+				return
+			}
+		}
+	}()
+
 	// Usually, client connection status changes between [dispatching] <=> [reading].
 	// When some event happens, server may notify this client connection by setting
 	// the status to special values, for example: kill or graceful shutdown.
@@ -953,8 +1007,12 @@ func (cc *clientConn) Run(ctx context.Context) {
 		// close connection when idle time is more than wait_timeout
 		waitTimeout := cc.getSessionVarsWaitTimeout(ctx)
 		cc.pkt.setReadTimeout(time.Duration(waitTimeout) * time.Second)
-		start := time.Now()
+		done <- true
+		start = time.Now()
+		block = true
 		data, err := cc.readPacket()
+		block = false
+		<- done
 		if err != nil {
 			if terror.ErrorNotEqual(err, io.EOF) {
 				if netErr, isNetErr := errors.Cause(err).(net.Error); isNetErr && netErr.Timeout() {
@@ -1855,7 +1913,7 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 		return false, err
 	}
     //fmt.Printf("new sql is %s,cost is %f \n",stmt.Text(),cc.ctx.GetSessionVars().Proxy.Cost)
-	conn, err := cc.getBackendConn(cc.server.cluster)
+	conn, err := cc.getBackendConn(cc.server.cluster,false)
 	defer cc.closeConn(conn, false)
 	if err != nil {
 		fmt.Errorf("get backend conn failed: %s\n", err)

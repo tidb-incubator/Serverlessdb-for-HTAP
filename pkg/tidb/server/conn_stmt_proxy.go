@@ -44,10 +44,10 @@ func init() {
 	columnFieldData = c.Dump()
 }
 
-func (c *clientConn) handlePrepare(ctx context.Context,conn *backend.BackendConn,planstmt *plannercore.CachedPrepareStmt, sql string,paramtype []byte, args []interface{}) error {
+func (c *clientConn) handlePrepare(ctx context.Context,conn *backend.BackendConn,planstmt *plannercore.CachedPrepareStmt, s *TiDBStatement, args []interface{}) error {
 	var rs *mysql.Result
 	stmtctx := c.ctx.GetSessionVars().StmtCtx
-	rs, err := c.executeInNode(conn, sql,paramtype,args)
+	rs, err := c.executeInNode(conn,s,args)
 	if err != nil {
 		return err
 	}

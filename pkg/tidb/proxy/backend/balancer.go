@@ -135,7 +135,7 @@ func order(tidbsWeights []int) []int {
 	return result
 }
 
-func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error) {
+func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64,bindFlag bool) (*DB, error) {
 	//Distinguish SQL types based on costs
 	var db *DB
 	var err error
@@ -143,25 +143,32 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 	case cost <= 10000:
 		//Predicate SQL is belong to TP type
 		pool := cluster.BackendPools[TiDBForTP]
-		pool.Lock()
-		//if cluster.ProxyNode.IsPureCompute && len(pool.Tidbs) == 1 {
-		if len(pool.Tidbs) == 1 {
-			db = pool.Tidbs[0]
-		} else {
-			db, err = pool.GetNextDB(lbIndicator)
-			if err != nil {
-				pool.Unlock()
-				return nil, err
+		var i int
+		for ;i<30;i++ {
+			pool.Lock()
+			//if cluster.ProxyNode.IsPureCompute && len(pool.Tidbs) == 1 {
+			if len(pool.Tidbs) == 1 {
+				db = pool.Tidbs[0]
+			} else {
+				db, err = pool.GetNextDB(lbIndicator)
+				if err != nil {
+					pool.Unlock()
+					return nil, err
+				}
 			}
-		}
-		pool.Unlock()
+			pool.Unlock()
+			if db.Self {
+				atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+			}
 
-		if db.Self {
-			atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
-		} else {
-			atomic.AddInt64(&pool.Costs, cost)
+			if db.Self {
+				atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+
+			} else {
+				atomic.AddInt64(&pool.Costs, cost)
+			}
+			return db, err
 		}
-		return db, err
 
 	case cost > 1000000000:
 		//Predicate SQL is belong to Big AP type
@@ -200,7 +207,7 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64) (*DB, error)
 		atomic.AddInt64(&pool.Costs, cost)
 		return db, err
 	}
-
+	return db, err
 }
 
 func (cluster *Pool) GetNextDB(indicator string) (*DB, error) {
