@@ -930,6 +930,12 @@ func (cc *clientConn) Run(ctx context.Context) {
 	defer func() {
 		closeFlag = true
 		close(done)
+		mapPrepare := cc.ctx.GetMapStatement()
+		for _,v := range mapPrepare {
+			if cc.prepareConn != nil && !cc.prepareConn.IsProxySelf() && cc.prepareConn.GetBindConn() {
+				cc.prepareConn.ClosePrepare(v.tidbId)
+			}
+		}
 		r := recover()
 		if r != nil {
 			buf := make([]byte, size)
