@@ -78,6 +78,10 @@ func (ts *TiDBStatement) ID() int {
 	return int(ts.id)
 }
 
+func (ts *TiDBStatement) SetTidbId(id uint32) {
+	ts.tidbId = id
+}
+
 // Execute implements PreparedStatement Execute method.
 func (ts *TiDBStatement) Execute(ctx context.Context, args []types.Datum) (rs ResultSet, err error) {
 	tidbRecordset, err := ts.ctx.ExecutePreparedStmt(ctx, ts.id, args)

@@ -116,7 +116,9 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 		atomic.StoreInt64(&cluster.MaxCostPerSql, cost)
 	}
 	fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql)
-	if !sessionVars.InTxn() && sessionVars.IsAutocommit() || sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == false {
+	if !sessionVars.InTxn() && sessionVars.IsAutocommit() ||
+		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == false ||
+		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == true && cost > 10000 {
 		//fmt.Println("no tran")
 		co, err = cluster.GetTidbConn(cost,bindFlag)
 		if err != nil {
