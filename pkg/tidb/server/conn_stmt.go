@@ -117,7 +117,27 @@ func (cc *clientConn) handleStmtPrepare(ctx context.Context, sql string) error {
 		}
 
 	}
-	return cc.flush(ctx)
+	err = cc.flush(ctx)
+	if err != nil {
+		return err
+	}
+	cc.setPrepare()
+	conn,err := cc.getBackendConn(cc.server.cluster,true)
+	if err !=  nil {
+		return err
+	}
+	if !conn.IsProxySelf() {
+		s,err := conn.Prepare(sql)
+		if err != nil {
+			return err
+		}
+		stmtPrepare := cc.ctx.GetStatement(stmt.ID())
+		if stmtPrepare != nil {
+			stmtPrepare.SetTidbId(s.GetId())
+		}
+	}
+	cc.prepareConn = conn
+	return nil
 }
 
 func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err error) {

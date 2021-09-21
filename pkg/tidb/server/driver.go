@@ -50,6 +50,8 @@ type PreparedStatement interface {
 	// GetParamsType returns the type for parameters.
 	GetParamsType() []byte
 
+	SetTidbId(uint32)
+
 	// StoreResultSet stores ResultSet for subsequent stmt fetching
 	StoreResultSet(rs ResultSet)
 
