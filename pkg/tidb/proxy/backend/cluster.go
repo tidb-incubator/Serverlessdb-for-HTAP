@@ -40,7 +40,7 @@ const (
 	TiDBForTP          = "tp"
 	TiDBForAP          = "ap"
 	WeightPerHalfProxy = 1
-	DefaultProxySize = 2.0
+	DefaultProxySize = 4.0
 )
 
 type Cluster struct {

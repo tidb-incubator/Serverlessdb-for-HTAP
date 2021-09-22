@@ -43,7 +43,10 @@ func (sl *Serverless) RestServerless(tidbType string) {
 	sl.multiScales[tidbType].resetscalein()
 }
 
-var CostOneCore float64 = 100000
+const (
+	CostOneTpCore float64 = 100000
+	CostOneApCore float64 = 100000000
+)
 var ScalerClient scalepb.ScaleClient
 var ClusterName string
 var NameSpace string
@@ -97,10 +100,7 @@ func NewServerless(cfg *config.Config, srv *Server, count *Counter) (*Serverless
 
 func (sl *Serverless) CheckServerless() {
 	for tidbtype, pool := range sl.proxy.cluster.BackendPools {
-		if tidbtype == backend.TiDBForAP {
-			continue
-		}
-		needcore := sl.multiScales[tidbtype].GetNeedCores(pool.Costs)
+		needcore := sl.multiScales[tidbtype].GetNeedCores(pool.Costs, tidbtype)
 		currentcore := sl.GetCurrentCores(tidbtype)
 		if needcore == currentcore {
 			continue
@@ -207,9 +207,14 @@ func (sl *Serverless) GetCurrentCores(tidbType string) float64 {
 	return currentcores
 }
 
-func (sl *Scale) GetNeedCores(costs int64) float64 {
-
-
+func (sl *Scale) GetNeedCores(costs int64, tidbtype string) float64 {
+	var CostOneCore float64
+	switch tidbtype {
+	case backend.TiDBForAP:
+		CostOneCore = CostOneApCore
+	case backend.TiDBForTP:
+		CostOneCore = CostOneTpCore
+	}
 
 	if costs > int64(CostOneCore) {
 		return math.Ceil(float64(costs) / float64(CostOneCore))

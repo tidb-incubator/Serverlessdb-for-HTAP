@@ -1098,17 +1098,24 @@ func createTC(existClusterMap map[string]*tcv1.TidbCluster, name, tidbtype strin
 		newtc.Labels = util.New().Instance(name).BcRdsInstance(tc.Name)
 		newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
 		newtc.Spec.TiDB.Labels[RoleInstanceLabelKey] = tidbtype
-		if tidbtype == AP {
-			newtc.Spec.TiDB.Replicas = 1
-		} else {
-			newtc.Spec.TiDB.Replicas = 0
+		if newtc.Spec.TiDB.Config == nil {
+			newtc.Spec.TiDB.Config = tcv1.NewTiDBConfig()
 		}
+
 		newtc.Spec.TiDB.Limits = limit
 		newtc.Spec.Version = tc.Spec.Version
 		newtc.Spec.TiDB.Service = nil
 		newtc.Spec.TiDB.StorageClassName = tc.Spec.TiDB.StorageClassName
 		newtc.Spec.SchedulerName = tc.Spec.SchedulerName
 		newtc.Spec.TiDB.Requests = limit.DeepCopy()
+
+		if tidbtype == AP {
+			newtc.Spec.TiDB.Replicas = 1
+			newtc.Spec.TiDB.Config.Set("mem-quota-query", (newtc.Spec.TiDB.Requests.Memory().Value() / 2))
+		} else {
+			newtc.Spec.TiDB.Replicas = 0
+		}
+
 		newtc.Spec.Annotations = map[string]string{
 			util.InstanceAnnotationKey: tc.Name,
 		}
@@ -1928,11 +1935,11 @@ func ClusterStatusCheck(sldb *v1alpha1.ServerlessDB, sldbType tcv1.MemberType) (
 		return nil, err
 	}
 	tidbStatus := GetTidbStatus(tclus)
-	//silentCond := util.GetServerlessDBCondition(sldb.Status, v1alpha1.TiDBSilence)
+	silentCond := util.GetServerlessDBCondition(sldb.Status, v1alpha1.TiDBSilence)
 	restartCond := util.GetServerlessDBCondition(sldb.Status, v1alpha1.TiDBRestart)
 	if ((tidbStatus != tcv1.NormalPhase || len(sldb.Status.Rule) != 0) && sldbType == tcv1.TiDBMemberType) ||
 		(tclus.OldTc[0].Tc.Status.TiKV.Phase != tcv1.NormalPhase && sldbType == tcv1.TiKVMemberType) ||
-		sldb.Status.Phase != v1alpha1.PhaseAvailable || sldb.Spec.Paused == true ||  restartCond != nil {
+		sldb.Status.Phase != v1alpha1.PhaseAvailable || sldb.Spec.Paused == true || silentCond != nil || restartCond != nil {
 		klog.Infof("[%s/%s] is not premit scaler Phase %s,len rule %v, sldbType %v,tidb phase %v,tikv phase %v\n",
 			sldb.Namespace, sldb.Name, sldb.Status.Phase, sldb.Status.Rule, sldbType, tidbStatus, tclus.OldTc[0].Tc.Status.TiKV.Phase)
 		return nil, nil

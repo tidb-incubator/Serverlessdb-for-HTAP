@@ -109,7 +109,7 @@ func (s *Stmt) write(paramtype []byte,args ...interface{}) error {
 	var length int = int(1 + 4 + 1 + 4 + ((paramsNum + 7) >> 3) + 1 + (paramsNum << 1))
 
 	var newParamBoundFlag byte = 0
-   fmt.Printf("len(args) is %d,value is %d \n",len(args),args[0])
+   //fmt.Printf("len(args) is %d,value is %d \n",len(args),args[0])
 	for i := range args {
 		if args[i] == nil {
 			nullBitmap[i/8] |= (1 << (uint(i) % 8))
