@@ -207,8 +207,7 @@ func (*Service) ScaleCluster(ctx context.Context, req *scalepb.ScaleRequest) (*s
 			//set replica to 1 and cpu to request of tc which is same name with sldb.
 			if tc.Spec.TiDB.Replicas != 0 {
 				klog.Infof("[%s/%s]ScaleCluster tidb exist %d pod(s)", tc.Namespace, tc.Name, tc.Spec.TiDB.Replicas)
-				reply.Success = true
-				return reply, nil
+				continue
 			}
 			if tc.Name != sldb.Name {
 				if tc.Spec.TiDB.Replicas == 0 {
@@ -397,6 +396,11 @@ func CreateLargeTc(clusName, ns, largeTCName string, norm int) (*tidbv1.TidbClus
 	newtc.Spec.TiDB = tc.Spec.TiDB.DeepCopy()
 	newtc.Spec.TiDB.Labels[RoleInstanceLabelKey] = "bigcost"
 	newtc.Spec.TiDB.Replicas = 1
+	if newtc.Spec.TiDB.Config == nil {
+		newtc.Spec.TiDB.Config = tidbv1.NewTiDBConfig()
+	}
+	//memQuota := fmt.Sprintf("%d", norm*2<<30)
+	newtc.Spec.TiDB.Config.Set("mem-quota-query", norm*2<<30)
 
 	cpuT := strconv.Itoa(norm)
 	memT := strconv.Itoa(norm*4) + "Gi"

@@ -115,7 +115,7 @@ const defaultCapability = mysql.ClientLongPassword | mysql.ClientLongFlag |
 	mysql.ClientConnectAtts | mysql.ClientPluginAuth | mysql.ClientInteractive
 
 
-const DefaultProxySize = "2.0"
+const DefaultProxySize = "4.0"
 
 // Server is the MySQL protocol server
 type Server struct {
@@ -443,7 +443,7 @@ func MakeTidbs(Podlist *v1.PodList, ns string) string {
 		cpuNum = getFloatCpu(cpuNum)
 		tcName := v.Labels[InstanceLabelKey]
 		if v.Labels[RoleInstanceLabelKey]== "proxy" {
-			result = result + "self" + "@" + cpuNum + ","
+			result = result + "self" + "@" + DefaultProxySize + ","
 		} else {
 			result = result + podname + "." + tcName + "-tidb-peer" + "." + ns + ":" + TidbPort + "@" + cpuNum + ","
 		}
@@ -528,7 +528,7 @@ func (s *Server) CheckClusterSilence() {
 	for {
 		tppool := s.cluster.BackendPools[backend.TiDBForTP]
 		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs + s.cluster.ProxyNode.ProxyCost
-		if costs < 10000 {
+		if costs < 10000 && s.counter.ClientQPS < 100 {
 			//proxy service as a pure tp type compute node, and no need other tp type tidb.
 			if !s.cluster.ProxyNode.ProxyAsCompute {
 				proxyAddr := "self" + "@" + DefaultProxySize

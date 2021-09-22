@@ -996,6 +996,8 @@ func (cc *clientConn) Run(ctx context.Context) {
 		}
 	}()
 
+	defer cc.clean()
+
 	// Usually, client connection status changes between [dispatching] <=> [reading].
 	// When some event happens, server may notify this client connection by setting
 	// the status to special values, for example: kill or graceful shutdown.
@@ -1179,6 +1181,7 @@ func (cc *clientConn) addMetrics(cmd byte, startTime time.Time, err error) {
 // It also gets a token from server which is used to limit the concurrently handling clients.
 // The most frequently used command is ComQuery.
 func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
+	cc.server.counter.IncrClientQPS()
 	defer func() {
 		// reset killed for each request
 		atomic.StoreUint32(&cc.ctx.GetSessionVars().Killed, 0)
@@ -2362,6 +2365,13 @@ func (cc *clientConn) handleRefresh(ctx context.Context, subCommand byte) error 
 		}
 	}
 	return cc.writeOK(ctx)
+}
+
+func (cc *clientConn) clean() {
+	if cc.txConn!=nil{
+		cc.txConn.Close()
+		cc.txConn=nil
+	}
 }
 
 var _ fmt.Stringer = getLastStmtInConn{}
