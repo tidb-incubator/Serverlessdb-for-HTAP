@@ -919,7 +919,25 @@ func (cc *clientConn) initConnect(ctx context.Context) error {
 	logutil.Logger(ctx).Debug("init_connect complete")
 	return nil
 }
-
+func (cc*clientConn) ReleasePrepare(ctx context.Context) {
+	if cc.isPrepare() == true && cc.prepareConn != nil &&
+		cc.prepareConn.GetBindConn() {
+		stmts := cc.ctx.GetMapStatement()
+		for _, v := range stmts {
+			cc.prepareConn.ClosePrepare(v.tidbId)
+		}
+		if cc.prepareConn.Conn != nil {
+			cc.prepareConn.SetNoDelayFlase()
+		}
+	}
+	if cc.txConn != nil && !cc.txConn.IsProxySelf()  {
+		cc.txConn.Close()
+	} else if cc.prepareConn != nil && !cc.prepareConn.IsProxySelf() {
+		cc.prepareConn.Close()
+	}
+	cc.txConn = nil
+	cc.prepareConn = nil
+}
 // Run reads client query and writes query result to client in for loop, if there is a panic during query handling,
 // it will be recovered and log the panic error.
 // This function returns and the connection is closed if there is an IO error or there is a panic.
@@ -930,12 +948,6 @@ func (cc *clientConn) Run(ctx context.Context) {
 	defer func() {
 		closeFlag = true
 		close(done)
-		mapPrepare := cc.ctx.GetMapStatement()
-		for _,v := range mapPrepare {
-			if cc.prepareConn != nil && !cc.prepareConn.IsProxySelf() && cc.prepareConn.GetBindConn() {
-				cc.prepareConn.ClosePrepare(v.tidbId)
-			}
-		}
 		r := recover()
 		if r != nil {
 			buf := make([]byte, size)
@@ -971,6 +983,7 @@ func (cc *clientConn) Run(ctx context.Context) {
 					select {
 					case msg, ok := <-done:
 						if !ok {
+							cc.ReleasePrepare(ctx)
 							return
 						}
 						if cc.isPrepare() == true && cc.prepareConn != nil &&
@@ -982,15 +995,16 @@ func (cc *clientConn) Run(ctx context.Context) {
 							}
 							cc.prepareConn.SetNoDelayFlase()
 						}
-						if cc.prepareConn != nil {
+						if cc.prepareConn != nil && !cc.prepareConn.IsProxySelf() {
 							cc.prepareConn.Close()
-							cc.prepareConn = nil
 						}
+						cc.prepareConn = nil
 						done <- msg
 					}
 				}
 			}
 			if closeFlag == true {
+				cc.ReleasePrepare(ctx)
 				return
 			}
 		}
@@ -1893,8 +1907,30 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 
 	var err error
 	sctx := cc.ctx
+
+	cc.ctx.GetSessionVars().Proxy.SQLtext = stmt.Text()
+	defer func() {
+		cc.ctx.GetSessionVars().Proxy.SQLtext=""
+	}()
+	stmtcost, err := cc.ctx.GotStmtCostForProxy(ctx, stmt)
+	if err != nil {
+		fmt.Errorf("get cost err is %s\n", err)
+		return false, err
+	}
+	//fmt.Printf("new sql is %s,cost is %f \n",stmt.Text(),cc.ctx.GetSessionVars().Proxy.Cost)
+	switch stmt.(type) {
+	case *ast.BeginStmt:
+		//fmt.Println("========handleStmt begin1=========",cc.txConn,cc.prepareConn)
+		cc.ctx.GetSessionVars().SetInTxn(true)
+	}
+	conn, err := cc.getBackendConn(cc.server.cluster,cc.ctx.GetSessionVars().InTxn())
+	if err != nil {
+		fmt.Errorf("get backend conn failed: %s\n", err)
+		return false, err
+	}
+	defer cc.closeConn(conn, false)
 	if sctx.GetSessionVars().Proxy.Userquery {
-		if cc.txConn == nil || !cc.txConn.IsProxySelf() {
+		if !conn.IsProxySelf() {
 			switch stmt.(type) {
 			case *ast.BeginStmt:
 				err = cc.handleBegin()
@@ -1909,27 +1945,6 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 			}
 		}
 	}
-
-	cc.ctx.GetSessionVars().Proxy.SQLtext = stmt.Text()
-
-	defer func() {
-		cc.ctx.GetSessionVars().Proxy.SQLtext=""
-	}()
-
-	stmtcost, err := cc.ctx.GotStmtCostForProxy(ctx, stmt)
-	if err != nil {
-		fmt.Errorf("get cost err is %s\n", err)
-		return false, err
-	}
-    //fmt.Printf("new sql is %s,cost is %f \n",stmt.Text(),cc.ctx.GetSessionVars().Proxy.Cost)
-	conn, err := cc.getBackendConn(cc.server.cluster,false)
-	defer cc.closeConn(conn, false)
-	if err != nil {
-		fmt.Errorf("get backend conn failed: %s\n", err)
-		return false, err
-	}
-
-
 	//
 	if sctx.GetSessionVars().Proxy.Userquery&& !conn.IsProxySelf() {
 		switch stmt.(type) {

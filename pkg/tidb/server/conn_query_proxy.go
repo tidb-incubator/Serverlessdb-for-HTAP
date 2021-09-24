@@ -48,8 +48,8 @@ func (c *clientConn) scaleClosePrepare(cluster *backend.Cluster) uint64 {
 			if c.txConn == nil {
 				if c.isPrepare() == true {
 					// all connection use new tidb prepare
-					if !c.prepareConn.IsProxySelf() {
-						if c.prepareConn != nil && c.prepareConn.GetBindConn() {
+					if c.prepareConn != nil && !c.prepareConn.IsProxySelf() {
+						if  c.prepareConn.GetBindConn() {
 							for _, v := range c.ctx.GetMapStatement() {
 								c.prepareConn.ClosePrepare(v.tidbId)
 							}
@@ -118,16 +118,18 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 
 	fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql)
 	if !sessionVars.InTxn() && sessionVars.IsAutocommit() ||
-		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == false ||
-		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == true && cost > 10000 {
+		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == false {
 		//fmt.Println("no tran")
-		co, err = cluster.GetTidbConn(cost,bindFlag)
+		co, err = cluster.GetTidbConn(cost,false)
 		if err != nil {
 			return
 		}
 	} else {
 		curVersion = c.scaleClosePrepare(cluster)
 		if sessionVars.InTxn() || !sessionVars.IsAutocommit() {
+			if c.txConn == nil {
+				c.txConn = c.prepareConn
+			}
 			co = c.txConn
 			if co == nil {
 				if co, err = cluster.GetTidbConn(cost, bindFlag); err != nil {
@@ -144,8 +146,8 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 						}
 					}
 					co.SetNoDelayTrue()
-					c.txConn = co
 				}
+				c.txConn = co
 			} else {
 				if co.IsProxySelf() {
 					atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
@@ -163,7 +165,9 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 				if co, err = cluster.GetTidbConn(cost,bindFlag); err != nil {
 					return
 				}
-				co.SetNoDelayTrue()
+				if !co.IsProxySelf() {
+					co.SetNoDelayTrue()
+				}
 			} else {
 				if co.IsProxySelf() {
 					atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
@@ -182,12 +186,15 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 	if Flag == true {
 		err = c.mountPrepareConn(co,curVersion)
 		if err != nil {
-			co.SetNoDelayFlase()
-			co.Close()
+			if !co.IsProxySelf() {
+				co.SetNoDelayFlase()
+				co.Close()
+			}
 			c.txConn = nil
 			c.prepareConn = nil
 		}
-	} else {
+	}
+	if co.GetBindConn() == false {
 		err = c.connSet(co)
 	}
 
@@ -227,6 +234,7 @@ func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	}
 	if conn.IsProxySelf() {
 		atomic.AddInt64(&c.server.cluster.ProxyNode.ProxyCost, -cost)
+		return
 	}
 
 	if sessionVars.InTxn() || !sessionVars.IsAutocommit() ||
@@ -236,6 +244,8 @@ func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	}
 
 	defer conn.Close()
+	c.prepareConn = nil
+	c.txConn = nil
 
 	if rollback {
 		conn.Rollback()
