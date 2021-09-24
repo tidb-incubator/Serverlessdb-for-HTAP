@@ -16,6 +16,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/mysql"
 )
 
@@ -32,7 +33,7 @@ func (c *clientConn) isPrepare() bool {
 
 func (c *clientConn) cleanPrePare(id uint32) error {
 	if c.prepareConn == nil {
-		return fmt.Errorf("prepareConn has been closed")
+		return nil
 	}
 	if c.prepareConn.IsProxySelf() {
 		return nil
@@ -103,7 +104,7 @@ func (c *clientConn) commit() (err error) {
 			}
 			co.SetNoDelayFlase()
 		}
-		if c.isPrepare() == false {
+		if c.isPrepare() == false && !co.IsProxySelf() {
 			co.Close()
 		}
 	}
@@ -113,8 +114,11 @@ func (c *clientConn) commit() (err error) {
 
 func (c *clientConn) commitInProxy() (err error) {
 	if co := c.txConn; co != nil {
-		if c.isPrepare() == false {
-			co.Close()
+		if co.IsProxySelf() {
+			c.ctx.GetSessionVars().SetInTxn(false)
+		} else {
+			fmt.Println("commitInProxy failed")
+			return fmt.Errorf("commitInProxy failed")
 		}
 	}
 	c.txConn = nil
@@ -132,7 +136,7 @@ func (c *clientConn) rollback() (err error) {
 			}
 			co.SetNoDelayFlase()
 		}
-		if c.isPrepare() == false {
+		if c.isPrepare() == false  && !co.IsProxySelf() {
 			co.Close()
 		}
 	}
@@ -143,8 +147,11 @@ func (c *clientConn) rollback() (err error) {
 func (c *clientConn) rollbackInProxy() (err error) {
 	//fmt.Printf("rollback is %+v",c.txConn)
 	if co := c.txConn; co != nil {
-		if c.isPrepare() == false {
-			co.Close()
+		if co.IsProxySelf() {
+			c.ctx.GetSessionVars().SetInTxn(false)
+		} else {
+			fmt.Println("rollbackInProxy failed")
+			return fmt.Errorf("rollbackInProxy failed")
 		}
 	}
 	c.txConn = nil

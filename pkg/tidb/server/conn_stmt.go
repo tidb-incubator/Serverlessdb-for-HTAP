@@ -126,14 +126,18 @@ func (cc *clientConn) handleStmtPrepare(ctx context.Context, sql string) error {
 	if err !=  nil {
 		return err
 	}
+	cc.prepareConn = conn
+	defer cc.closeConn(conn, false)
 	if !conn.IsProxySelf() {
-		s,err := conn.Prepare(sql)
-		if err != nil {
-			return err
-		}
-		stmtPrepare := cc.ctx.GetStatement(stmt.ID())
-		if stmtPrepare != nil {
-			stmtPrepare.SetTidbId(s.GetId())
+		if conn.GetBindConn() == true {
+			s, err := conn.Prepare(sql)
+			if err != nil {
+				return err
+			}
+			stmtPrepare := cc.ctx.GetStatement(stmt.ID())
+			if stmtPrepare != nil {
+				stmtPrepare.SetTidbId(s.GetId())
+			}
 		}
 	}
 	cc.prepareConn = conn
@@ -235,15 +239,6 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 			return errors.Annotate(err, cc.preparedStmt2String(stmtID))
 		}
 	}
-	switch tidbtext.s.(type) {
-	case *ast.BeginStmt:
-		return cc.handleBegin()
-	case *ast.CommitStmt:
-		return cc.handleCommit()
-	case *ast.RollbackStmt:
-		return cc.handleRollback()
-	}
-
 	cc.ctx.GetSessionVars().Proxy.SQLtext = tidbtext.sql
 	cc.ctx.GetSessionVars().Proxy.Cost = 0
 	defer func() {
@@ -261,16 +256,34 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 
 	est, _ := session.ExecutePreparedStmtForProxy(ctx, tidbtext.ctx.Session, stmtID, args)
 	//fmt.Printf("prepare sql is %s,cost is %f\n", est.Text, tidbtext.ctx.GetSessionVars().Proxy.Cost)
-
-	cluster := cc.server.cluster
-	conn, err := cc.getBackendConn(cluster,true)
-	if conn != nil {
-		defer cc.closeConn(conn, false)
+	switch tidbtext.s.(type) {
+	case *ast.BeginStmt:
+		//fmt.Println("========handleStmtExecute begin1=========",cc.txConn,cc.prepareConn)
+		cc.ctx.GetSessionVars().SetInTxn(true)
 	}
+	conn, err := cc.getBackendConn(cc.server.cluster,true)
 	if err != nil {
+		//fmt.Errorf("get backend conn failed: %s\n", err)
 		return err
 	}
-
+	defer cc.closeConn(conn, false)
+	if !conn.IsProxySelf() {
+		switch tidbtext.s.(type) {
+		case *ast.BeginStmt:
+			err = cc.handleBegin()
+			//fmt.Println("========handleStmtExecute begin2=========",conn,cc.txConn,cc.prepareConn)
+			return err
+		case *ast.CommitStmt:
+			err = cc.handleCommit()
+			//fmt.Println("========handleStmtExecute commit2=========",conn,cc.txConn,cc.prepareConn)
+			return err
+		case *ast.RollbackStmt:
+			err = cc.handleRollback()
+			//fmt.Println("========handleStmtExecute rollback2=========",conn,cc.txConn,cc.prepareConn)
+			return err
+		default:
+		}
+	}
 	if !conn.IsProxySelf() {
 		err = cc.bindStmtArgs(tidbtext, argsproxy, stmt.BoundParams(), nullBitmaps, stmt.GetParamsType(), paramValues)
 		//	selectstmt, _ := preparedStmt.PreparedAst.Stmt.(*ast.SelectStmt)
@@ -294,6 +307,17 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 			_, err = cc.executePreparedStmtAndWriteResultForProxy(ctx, stmt, est, useCursor)
 			// We append warning after the retry because `ResetContextOfStmt` may be called during the retry, which clears warnings.
 			cc.ctx.GetSessionVars().StmtCtx.AppendError(prevErr)
+		}
+		if err != nil {
+			return err
+		}
+		switch tidbtext.s.(type) {
+		case *ast.CommitStmt:
+			//fmt.Println("========handleStmtExecute commit proxy=========",conn,cc.txConn,cc.prepareConn)
+			cc.commitInProxy()
+		case *ast.RollbackStmt:
+			//fmt.Println("========handleStmtExecute rollback proxy=========",conn,cc.txConn,cc.prepareConn)
+			cc.rollbackInProxy()
 		}
 		return err
 	}

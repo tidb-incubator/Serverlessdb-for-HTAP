@@ -454,9 +454,8 @@ func (p *BackendConn) SetNoDelayFlase() {
 func (p *BackendConn) Close() {
 	atomic.AddInt64(&p.db.usingConnsCount,-1)
 	//fmt.Printf("using conn is %d \n",p.db.usingConnsCount)
-	if p.db.usingConnsCount < 0 {
-		fmt.Printf("using conn is %d initnum %d\n",p.db.usingConnsCount,p.db.InitConnNum)
-	}
+	fmt.Printf("Close using conn is %d initnum %d\n",p.db.usingConnsCount,p.db.InitConnNum,p.db.maxConnNum)
+
 	if p != nil && p.Conn != nil {
 		if p.Conn.pkgErr != nil {
 			p.db.closeConn(p.Conn)
