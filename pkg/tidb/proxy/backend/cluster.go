@@ -16,6 +16,7 @@ package backend
 
 import (
 	"fmt"
+	"github.com/pingcap/tidb/metrics"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"math"
@@ -137,19 +138,20 @@ func (cluster *Cluster) GetTidbConn(cost int64,bindFlag bool) (*BackendConn, err
 	switch {
 	case cost <= 10000:
 		//Predicate SQL is belong to TP type
+		metrics.QueriesCounter.WithLabelValues(TiDBForTP).Inc()
 		return cluster.getConn(TiDBForTP, cost, bindFlag)
 
-	case cost > 1000000000:
+	case cost > 8000000000:
 		//Predicate SQL is belong to Big AP type
 		//invoke grpc api of starting a new pod to handle this request.
 		var tempSize float32
 		switch {
-		case cost < 10000000000:
+		case cost <= 10000000000:
+			tempSize = 8.0
+		case cost > 10000000000 && cost <= 100000000000:
 			tempSize = 16.0
-		case cost > 10000000000 && cost < 100000000000:
-			tempSize = 32.0
 		case cost > 100000000000:
-			tempSize = 64.0
+			tempSize = 32.0
 		default:
 			tempSize = DefaultBigSize
 		}
@@ -170,6 +172,7 @@ func (cluster *Cluster) GetTidbConn(cost int64,bindFlag bool) (*BackendConn, err
 
 	default:
 		//choose AP tidb pools
+		metrics.QueriesCounter.WithLabelValues(TiDBForAP).Inc()
 		return cluster.getConn(TiDBForAP, cost, bindFlag)
 	}
 }

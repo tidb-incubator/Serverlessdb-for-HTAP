@@ -16,6 +16,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/mysql"
 )
@@ -66,6 +67,10 @@ func (c *clientConn) handleBegin() error {
 
 	//fmt.Printf("begin %+v \n",c.txConn)
 	if co := c.txConn; co != nil {
+		dbtype := co.GetDbType()
+		if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
+			metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
+		}
 		if !co.IsProxySelf() {
 			if err := co.Begin(); err != nil {
 				return err
@@ -98,6 +103,10 @@ func (c *clientConn) commit() (err error) {
 //	c.status &= ^mysql.SERVER_STATUS_IN_TRANS
   c.ctx.GetSessionVars().SetInTxn(false)
 	if co := c.txConn; co != nil {
+		dbtype := co.GetDbType()
+		if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
+			metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
+		}
 		if !co.IsProxySelf() {
 			if e := co.Commit(); e != nil {
 				err = e
@@ -130,6 +139,10 @@ func (c *clientConn) rollback() (err error) {
 	c.ctx.GetSessionVars().SetInTxn(false)
    //fmt.Printf("rollback is %+v",c.txConn)
 	if co := c.txConn; co != nil {
+		dbtype := co.GetDbType()
+		if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
+			metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
+		}
 		if !co.IsProxySelf() {
 			if e := co.Rollback(); e != nil {
 				err = e

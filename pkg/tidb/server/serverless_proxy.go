@@ -45,7 +45,7 @@ func (sl *Serverless) RestServerless(tidbType string) {
 
 const (
 	CostOneTpCore float64 = 100000
-	CostOneApCore float64 = 100000000
+	CostOneApCore float64 = 8000000000
 )
 var ScalerClient scalepb.ScaleClient
 var ClusterName string
