@@ -525,33 +525,37 @@ func (s *Server) runserverless() {
 }
 
 func (s *Server) CheckClusterSilence() {
-
+	var count int
 	for {
 		tppool := s.cluster.BackendPools[backend.TiDBForTP]
 		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs + s.cluster.ProxyNode.ProxyCost
-		if costs < 10000 && s.counter.ClientQPS < 100 {
+		if costs < 10000 && s.counter.OldClientQPS < 100 {
+			count += 1
+			if count >= 15 {
+				if len(tppool.Tidbs) > 1 {
+					scaleReq := &scalepb.ScaleRequest{
+						Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
+						Namespace:   s.cfg.Proxycfg.Cluster.NameSpace,
+						Hashrate:    0,
+						Scaletype:   backend.TiDBForTP,
+					}
+					_, err := ScalerClient.ScaleCluster(context.Background(), scaleReq)
+					if err != nil {
+						fmt.Errorf("fail to scale in all tp tidb node but proxy node: %s", err)
+					}
+				}
+				fmt.Println("proxy is as pure compute node, proxy cost is ", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql, "normal tp cost is ", s.cluster.BackendPools[backend.TiDBForTP].Costs, ", qps is ", s.counter.OldClientQPS)
+				count = 0
+			}
 			//proxy service as a pure tp type compute node, and no need other tp type tidb.
-			if !s.cluster.ProxyNode.ProxyAsCompute {
-				proxyAddr := "self" + "@" + DefaultProxySize
-				if err := s.cluster.AddTidb(proxyAddr, backend.TiDBForTP); err != nil {
-					fmt.Errorf("add proxy into tp pools failed: %s", err)
-				} else {
-					fmt.Println("add proxy into tp pools success when proxy as a pure compute node.")
-				}
-			}
-			if len(tppool.Tidbs) > 1 {
-				scaleReq := &scalepb.ScaleRequest{
-					Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
-					Namespace:   s.cfg.Proxycfg.Cluster.NameSpace,
-					Hashrate:    0,
-					Scaletype:   backend.TiDBForTP,
-				}
-				_, err := ScalerClient.ScaleCluster(context.Background(), scaleReq)
-				if err != nil {
-					fmt.Errorf("fail to scale in all tp tidb node but proxy node: %s", err)
-				}
-			}
-			fmt.Println("proxy is as pure compute node, proxy cost is ", costs, " max cost for one sql is ", s.cluster.MaxCostPerSql, "normal tp cost is ", s.cluster.BackendPools[backend.TiDBForTP].Costs)
+			//if !s.cluster.ProxyNode.ProxyAsCompute {
+			//	proxyAddr := "self" + "@" + DefaultProxySize
+			//	if err := s.cluster.AddTidb(proxyAddr, backend.TiDBForTP); err != nil {
+			//		fmt.Errorf("add proxy into tp pools failed: %s", err)
+			//	} else {
+			//		fmt.Println("add proxy into tp pools success when proxy as a pure compute node.")
+			//	}
+			//}
 
 		} else {
 			if s.cluster.ProxyNode.ProxyAsCompute && len(tppool.Tidbs) == 1 {
