@@ -117,7 +117,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 		atomic.StoreInt64(&cluster.MaxCostPerSql, cost)
 	}
 
-	fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql)
+	//fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql)
 	if !sessionVars.InTxn() && sessionVars.IsAutocommit() ||
 		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == false {
 		//fmt.Println("no tran")
@@ -128,8 +128,13 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 	} else {
 		curVersion = c.scaleClosePrepare(cluster)
 		if sessionVars.InTxn() || !sessionVars.IsAutocommit() {
+			//set tx transaction
+			var txStart bool
 			if c.txConn == nil {
 				c.txConn = c.prepareConn
+				if c.prepareConn != nil {
+					txStart = true
+				}
 			}
 			co = c.txConn
 			if co == nil {
@@ -154,6 +159,17 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 					atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
 					metrics.QueriesCounter.WithLabelValues(backend.TiDBForTP).Inc()
 				} else {
+					if txStart == true {
+						if !sessionVars.IsAutocommit() {
+							if err = co.SetAutoCommit(0); err != nil {
+								return
+							}
+						} else {
+							if err = co.Begin(); err != nil {
+								return
+							}
+						}
+					}
 					dbtype := co.GetDbType()
 					if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
 						atomic.AddInt64(&cluster.BackendPools[dbtype].Costs, cost)
@@ -239,23 +255,22 @@ func (c *clientConn) closeConn(conn *backend.BackendConn, rollback bool) {
 	}
 	if conn.IsProxySelf() {
 		atomic.AddInt64(&c.server.cluster.ProxyNode.ProxyCost, -cost)
-		return
 	}
-
 	if sessionVars.InTxn() || !sessionVars.IsAutocommit() ||
 		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == true &&
 		c.prepareConn!= nil && c.prepareConn.GetBindConn() {
 		return
 	}
-
-	defer conn.Close()
+	if !conn.IsProxySelf() {
+		if dbtype != backend.BigCost {
+			defer conn.Close()
+		}
+		if rollback {
+			conn.Rollback()
+		}
+	}
 	c.prepareConn = nil
 	c.txConn = nil
-
-	if rollback {
-		conn.Rollback()
-	}
-
 	//stop the big size tidb when the big sql is finished.
 	if dbtype == backend.BigCost {
 		_, err := backend.ScaleTempTidb(c.server.cluster.Cfg.NameSpace, c.server.cluster.Cfg.ClusterName, 0, false, conn.GetAddr())

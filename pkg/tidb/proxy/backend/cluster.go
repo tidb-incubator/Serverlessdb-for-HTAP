@@ -114,7 +114,7 @@ func (cluster *Cluster)getConn(ty string,cost int64,bindFlag bool) (*BackendConn
 		}
 		if db.Self {
 			atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
-			return &BackendConn{db: db}, nil
+			return &BackendConn{db: db,bindConn: bindFlag}, nil
 		} else {
 			var backCon *BackendConn
 			backCon, err = db.GetConn(bindFlag)
@@ -270,7 +270,6 @@ func (cluster *Cluster) AddTidb(addr, tidbType string) error {
 	} else {
 		weight = 1
 	}
-	pool.TidbsWeights = append(pool.TidbsWeights, weight)
 	if addrAndWeight[0] == "self" {
 		db = &DB{
 			addr: addrAndWeight[0],
@@ -280,13 +279,16 @@ func (cluster *Cluster) AddTidb(addr, tidbType string) error {
 	} else if db, err = cluster.OpenDB(addrAndWeight[0], weight); err != nil {
 		return err
 	}
-
+	pool.TidbsWeights = append(pool.TidbsWeights, weight)
 	db.dbType = tidbType
 	pool.Tidbs = append(pool.Tidbs, db)
 	if tidbType == TiDBForTP && cluster.ProxyNode.ProxyAsCompute && addrAndWeight[0] != "self" {
 		if pool.RebalanceWeight(math.Ceil(weight / WeightPerHalfProxy)) {
 			cluster.ProxyNode.ProxyAsCompute = false
 		}
+	}
+	for i:=0;i<len(pool.Tidbs);i++ {
+		fmt.Println("=======db weight db self=======",pool.Tidbs[i].addr,pool.Tidbs[i].Self,pool.Tidbs[i].state)
 	}
 	pool.InitBalancer()
 	pool.CurVersion++

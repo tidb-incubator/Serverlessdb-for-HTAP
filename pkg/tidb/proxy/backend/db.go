@@ -77,7 +77,7 @@ func Open(addr string, user string, password string, dbName string,weight float6
 	if weight < 1.0 {
 		conum = 512
 	} else {
-		conum = int(weight * 200)
+		conum = int(weight * 256)
 	}
 	if conum> DefaultMaxConnNum{
 		db.maxConnNum = DefaultMaxConnNum*2

@@ -16,8 +16,10 @@ package server
 
 import (
 	"fmt"
+
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/proxy/backend"
+
 	"github.com/pingcap/tidb/proxy/mysql"
 )
 
