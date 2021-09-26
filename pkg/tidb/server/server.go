@@ -525,6 +525,7 @@ func (s *Server) runserverless() {
 }
 
 func (s *Server) CheckClusterSilence() {
+
 	for {
 		tppool := s.cluster.BackendPools[backend.TiDBForTP]
 		costs := s.cluster.BackendPools[backend.TiDBForTP].Costs + s.cluster.ProxyNode.ProxyCost
