@@ -97,6 +97,9 @@ func (cluster *Pool) InitBalancer() {
 		cluster.RoundRobinQ = order(sws)
 	}
 	fmt.Println("cluster RoundRobinQ is ", cluster.RoundRobinQ, cluster.TidbsWeights)
+	for i:=0;i<len(cluster.Tidbs);i++ {
+		fmt.Println("db weight db self",cluster.Tidbs[i].addr,cluster.Tidbs[i].Self)
+	}
 }
 
 type peer struct {
@@ -230,7 +233,7 @@ func (cluster *Pool) GetNextDB(indicator string) (*DB, error) {
 		for i := 0; i < len(cluster.RoundRobinQ); i++ {
 			index = cluster.RoundRobinQ[cluster.LastTidbIndex]
 			if len(cluster.Tidbs) <= index {
-				fmt.Println("index is ", index)
+				fmt.Println("========index is====", index)
 				return nil, errors.ErrNoDatabase
 			}
 			db = cluster.Tidbs[index]
