@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/mysql"
 	"sync/atomic"
@@ -156,6 +157,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 			} else {
 				if co.IsProxySelf() {
 					atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+					metrics.QueriesCounter.WithLabelValues(backend.TiDBForTP).Inc()
 				} else {
 					if txStart == true {
 						if !sessionVars.IsAutocommit() {
@@ -171,6 +173,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 					dbtype := co.GetDbType()
 					if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
 						atomic.AddInt64(&cluster.BackendPools[dbtype].Costs, cost)
+						metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
 					}
 				}
 			}
@@ -187,10 +190,12 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 			} else {
 				if co.IsProxySelf() {
 					atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+					metrics.QueriesCounter.WithLabelValues(backend.TiDBForTP).Inc()
 				} else {
 					dbtype := co.GetDbType()
 					if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
 						atomic.AddInt64(&cluster.BackendPools[dbtype].Costs, cost)
+						metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
 					}
 				}
 			}

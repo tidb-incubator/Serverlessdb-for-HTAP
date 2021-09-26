@@ -89,7 +89,7 @@ func (am *AutoScalerManager) ScalerBaseOnMidWareAP(sldb *sldbv1.ServerlessDB) (b
 	if err != nil {
 		return false,err
 	}
-	klog.Infof("[%s/%s] ScalerBaseOnMidWareAP %v,%v",sldb.Namespace,sldb.Name,v)
+	klog.Infof("[%s/%s] ScalerBaseOnMidWareAP %v",sldb.Namespace,sldb.Name,v)
 	if v.ScalerFlag == utils.ScalerIn {
 		if tclus.NewHashRate < v.ScalerNeedCore {
 			tclus.NewHashRate = v.ScalerNeedCore
