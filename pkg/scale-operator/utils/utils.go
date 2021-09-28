@@ -329,7 +329,13 @@ func sortChoiceScalerInstance(arr []ChoiceScalerInstance) {
 }
 
 func choiceNeedReduceReplicas(tc *tcv1.TidbCluster, normalInstances []string, NeedReduceReplicas int32, component string) []string {
-	podList, err := GetK8sPodArray(tc, tcv1.MemberType(component), TP)
+	var scalerType string
+	if strings.Contains(tc.Name, "-ap") == true {
+		scalerType = AP
+	} else {
+		scalerType = TP
+	}
+	podList, err := GetK8sPodArray(tc, tcv1.MemberType(component), scalerType)
 	if err != nil {
 		klog.Errorf("[%s/%s] k8s query pod failed,needReduce %v", tc.Namespace, tc.Name, normalInstances[0:NeedReduceReplicas:NeedReduceReplicas])
 		return normalInstances[0:NeedReduceReplicas:NeedReduceReplicas]
@@ -659,8 +665,14 @@ func PodStatusCheckRollback(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbCluster, o
 				anno[key] = string(s)
 			}
 		}
+		var scalerType string
+		if strings.Contains(tc.Name, "-ap") == true {
+			scalerType = AP
+		} else {
+			scalerType = TP
+		}
 		// dns check
-		if podlist, err := GetK8sPodArray(tc, sldbType, TP); err == nil {
+		if podlist, err := GetK8sPodArray(tc, sldbType, scalerType); err == nil {
 			wg := sync.WaitGroup{}
 			klog.Infof("[%s/%s] PodStatusCheckRollback sucessArr %v", tc.Namespace, tc.Name, sucessArr)
 			for _, v := range sucessArr {
@@ -771,9 +783,15 @@ func UpdateTC(tc *tcv1.TidbCluster, sldbType tcv1.MemberType, auto bool) error {
 
 func FilterFailedAndNoHealthInstance(sldb *v1alpha1.ServerlessDB, tc *tcv1.TidbCluster, sldbType tcv1.MemberType) ([]int, []int, []int, error) {
 	var failedInstance, pendingInstance, sucessInstance []string
+	var scalerType string
+	if strings.Contains(tc.Name, "-ap") == true {
+		scalerType = AP
+	} else {
+		scalerType = TP
+	}
 	var podlist []*corev1.Pod
 	var err error
-	if podlist, err = GetK8sPodArray(tc, sldbType, TP); err != nil {
+	if podlist, err = GetK8sPodArray(tc, sldbType, scalerType); err != nil {
 		return nil, nil, nil, err
 	}
 	if sldbType == tcv1.TiDBMemberType {
