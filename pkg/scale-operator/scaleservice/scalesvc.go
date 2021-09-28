@@ -592,14 +592,12 @@ func deletePod(largeTc *tidbv1.TidbCluster, index string) error {
 func decideNorms (hashrate float32) int {
 	var norm int
 	switch {
-	case hashrate > 0  && hashrate <= 16:
+	case hashrate > 0  && hashrate <= 8:
+		norm = 8
+	case hashrate > 8  && hashrate <= 16:
 		norm = 16
-	case hashrate > 16  && hashrate <= 32:
+	case hashrate > 16:
 		norm = 32
-	case hashrate > 32  && hashrate <= 64:
-		norm = 64
-	case hashrate > 64:
-		norm = 128
 	default:
 		norm = 16
 	}
@@ -608,6 +606,7 @@ func decideNorms (hashrate float32) int {
 
 
 func StartLargeTc(clusName, ns string, hashrate float32) (string, error) {
+	klog.Errorf("[%s/%s] get hashrate is ------------------------- %f", ns, clusName,hashrate)
 	norm := decideNorms(hashrate)
 	normStr := strconv.Itoa(norm)
 	largeTCName := clusName + "-large" + normStr
