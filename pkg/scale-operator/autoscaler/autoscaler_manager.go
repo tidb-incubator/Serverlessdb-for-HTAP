@@ -91,8 +91,13 @@ func (am *AutoScalerManager) ScalerBaseOnMidWareAP(sldb *sldbv1.ServerlessDB) (b
 	}
 	klog.Infof("[%s/%s] ScalerBaseOnMidWareAP %v",sldb.Namespace,sldb.Name,v)
 	if v.ScalerFlag == utils.ScalerIn {
-		if tclus.NewHashRate < v.ScalerNeedCore {
-			tclus.NewHashRate = v.ScalerNeedCore
+		if tclus.NewHashRate > v.ScalerNeedCore {
+			base := tclus.OldTc[0].HashratePerTidb
+			if v.ScalerNeedCore < base {
+				tclus.NewHashRate = base
+			} else {
+				tclus.NewHashRate = v.ScalerNeedCore
+			}
 		}
 		utils.ChangeScalerStatus(sldb.Name+"-"+utils.AP,sldb.Namespace)
 	} else {
@@ -130,7 +135,7 @@ func (am *AutoScalerManager) ScalerBaseOnMidWareTP(sldb *sldbv1.ServerlessDB) (b
 		if err := am.SyncAutoScaling(tclus, sldb, v1alpha1.TiDBMemberType); err != nil {
 			return false,err
 		}
-		if tclus.NewHashRate < v.ScalerNeedCore {
+		if tclus.NewHashRate > v.ScalerNeedCore {
 			tclus.NewHashRate = v.ScalerNeedCore
 		}
 		utils.ChangeScalerStatus(sldb.Name,sldb.Namespace)
