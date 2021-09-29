@@ -160,13 +160,9 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64,bindFlag bool
 				}
 			}
 			pool.Unlock()
-			if db.Self {
-				atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
-			}
 
 			if db.Self {
 				atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
-
 			} else {
 				atomic.AddInt64(&pool.Costs, cost)
 			}
