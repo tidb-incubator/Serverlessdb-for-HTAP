@@ -122,6 +122,7 @@ func (cluster *Cluster)getConn(ty string,cost int64,bindFlag bool) (*BackendConn
 				continue
 			} else {
 				atomic.AddInt64(&pool.Costs, cost)
+				//fmt.Println("total cost is ", pool.Costs, ty)
 				return backCon, err
 			}
 		}

@@ -45,7 +45,7 @@ func (sl *Serverless) RestServerless(tidbType string) {
 
 const (
 	CostOneTpCore float64 = 100000
-	CostOneApCore float64 = 8000000000
+	CostOneApCore float64 = 2000000000
 )
 var ScalerClient scalepb.ScaleClient
 var ClusterName string
@@ -168,12 +168,12 @@ func (sl *Scale) resetscalein() {
 }
 
 func (sl *Serverless) scalein(currentcore, needcore float64, tidbType string) {
-	if sl.silentPeriod > 0 {
-		if needcore == 0 && sl.counter.QuiescentTotalTime > int64(sl.silentPeriod)*60 {
-			fmt.Printf("quiescent time %d > 30s post serverless scale down to 0 \n", sl.counter.QuiescentTotalTime)
-			return
-		}
-	}
+	//if sl.silentPeriod > 0 {
+	//	if needcore == 0 && sl.counter.QuiescentTotalTime > int64(sl.silentPeriod)*60 {
+	//		fmt.Printf("quiescent time %d > 30s post serverless scale down to 0 \n", sl.counter.QuiescentTotalTime)
+	//		return
+	//	}
+	//}
 	sl.multiScales[tidbType].SetScalein(currentcore - needcore, needcore, tidbType)
 }
 
