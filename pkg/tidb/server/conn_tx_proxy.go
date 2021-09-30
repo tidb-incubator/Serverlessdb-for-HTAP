@@ -25,7 +25,7 @@ import (
 
 func (c *clientConn) isInTransaction() bool {
 
-	return c.ctx.GetSessionVars().InTxn()
+	return c.ctx.GetSessionVars().InTxn()|| !c.ctx.GetSessionVars().IsAutocommit()
 
 }
 
@@ -38,7 +38,7 @@ func (c *clientConn) cleanPrePare(id uint32) error {
 	if c.prepareConn == nil {
 		return nil
 	}
-	if c.prepareConn.IsProxySelf() {
+	if c.prepareConn.IsProxySelf() || c.prepareConn.GetBindConn() == false {
 		return nil
 	}
 	c.prepareConn.ClosePrepare(id)
@@ -48,7 +48,7 @@ func (c *clientConn) cleanPrePare(id uint32) error {
 	}
 	//c.s.Close()
 	c.ctx.GetSessionVars().SetStatusFlag(mysql.SERVER_STATUS_PREPARE, false)
-	if c.ctx.GetSessionVars().InTxn() == false {
+	if !c.ctx.GetSessionVars().InTxn() && c.ctx.GetSessionVars().IsAutocommit() {
 		c.prepareConn.SetNoDelayFlase()
 		c.closeConn(c.prepareConn,false)
 	}
@@ -65,7 +65,7 @@ func (c *clientConn) isAutoCommit() bool {
 
 }
 
-func (c *clientConn) handleBegin() error {
+func (c *clientConn) initMetrics() error {
 
 	//fmt.Printf("begin %+v \n",c.txConn)
 	if co := c.txConn; co != nil {
@@ -73,15 +73,7 @@ func (c *clientConn) handleBegin() error {
 		if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
 			metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
 		}
-		if !co.IsProxySelf() {
-			if err := co.Begin(); err != nil {
-				return err
-			}
-		}
 	}
-
-	//c.status |= mysql.SERVER_STATUS_IN_TRANS
-	c.ctx.GetSessionVars().SetInTxn(true)
 	return c.writeOK(nil)
 }
 
@@ -113,9 +105,9 @@ func (c *clientConn) commit() (err error) {
 			if e := co.Commit(); e != nil {
 				err = e
 			}
-			co.SetNoDelayFlase()
 		}
 		if c.isPrepare() == false && !co.IsProxySelf() {
+			co.SetNoDelayFlase()
 			co.Close()
 		}
 	}
@@ -149,9 +141,9 @@ func (c *clientConn) rollback() (err error) {
 			if e := co.Rollback(); e != nil {
 				err = e
 			}
-			co.SetNoDelayFlase()
 		}
 		if c.isPrepare() == false  && !co.IsProxySelf() {
+			co.SetNoDelayFlase()
 			co.Close()
 		}
 	}
