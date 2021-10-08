@@ -42,6 +42,8 @@ const (
 	TiDBForAP          = "ap"
 	WeightPerHalfProxy = 1
 	DefaultProxySize = 4.0
+	LastCost = 0
+	CurCost = 1
 )
 
 type Cluster struct {
@@ -64,6 +66,7 @@ type Pool struct {
 	TidbsWeights  []float64
 
 	Costs int64
+	TotalCost [2]uint64
 }
 
 type Proxy struct {
@@ -114,6 +117,7 @@ func (cluster *Cluster)getConn(ty string,cost int64,bindFlag bool) (*BackendConn
 		}
 		if db.Self {
 			atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
+			//atomic.AddUint64(&pool.TotalCost[CurCost],uint64(cost))
 			return &BackendConn{db: db,bindConn: bindFlag}, nil
 		} else {
 			var backCon *BackendConn
@@ -123,6 +127,7 @@ func (cluster *Cluster)getConn(ty string,cost int64,bindFlag bool) (*BackendConn
 			} else {
 				atomic.AddInt64(&pool.Costs, cost)
 				//fmt.Println("total cost is ", pool.Costs, ty)
+				atomic.AddUint64(&pool.TotalCost[CurCost],uint64(cost))
 				return backCon, err
 			}
 		}
@@ -179,6 +184,7 @@ func (cluster *Cluster) GetTidbConn(cost int64,bindFlag bool) (*BackendConn, err
 }
 
 func (cluster *Cluster) checkTidbs() {
+	return
 	if cluster.BackendPools == nil {
 		return
 	}
