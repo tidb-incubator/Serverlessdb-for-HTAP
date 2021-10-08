@@ -7,7 +7,6 @@ import (
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/mysql"
-	"github.com/pingcap/tidb/sessionctx/variable"
 	"sync/atomic"
 )
 
@@ -75,13 +74,13 @@ func (c *clientConn) connSet(co *backend.BackendConn) (err error) {
 			c.dbname = ""
 			return
 		}
-		charset,_ := variable.GetSessionOrGlobalSystemVar(c.ctx.GetSessionVars(), variable.CharacterSetConnection)
+		/*charset,_ := variable.GetSessionOrGlobalSystemVar(c.ctx.GetSessionVars(), variable.CharacterSetConnection)
 		collation,_ := variable.GetSessionOrGlobalSystemVar(c.ctx.GetSessionVars(), variable.CollationConnection)
 
 		fmt.Printf("c.charset is %s,c.collation is %d \n",charset,mysql.CharsetIds[collation])
 		if err = co.SetCharset(charset, mysql.CharsetIds[collation]); err != nil {
 			return
-		}
+		}*/
 	}
 	return
 }
@@ -120,8 +119,9 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 	if cost > cluster.MaxCostPerSql {
 		atomic.StoreInt64(&cluster.MaxCostPerSql, cost)
 	}
-
-	//fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql)
+	if cost > 100000 {
+		fmt.Println("current cost is ", cost, " max cost is ", cluster.MaxCostPerSql,"sql",sessionVars.Proxy.SQLtext)
+	}
 	if !sessionVars.InTxn() && sessionVars.IsAutocommit() ||
 		sessionVars.GetStatusFlag(mysql.SERVER_STATUS_PREPARE) == false {
 		//fmt.Println("no tran")
@@ -159,6 +159,7 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 				}
 				c.txConn = co
 			} else {
+				dbtype := co.GetDbType()
 				if co.IsProxySelf() {
 					atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
 					metrics.QueriesCounter.WithLabelValues(backend.TiDBForTP).Inc()
@@ -174,9 +175,9 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 							}
 						}
 					}
-					dbtype := co.GetDbType()
 					if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
 						atomic.AddInt64(&cluster.BackendPools[dbtype].Costs, cost)
+						atomic.AddUint64(&cluster.BackendPools[dbtype].TotalCost[backend.CurCost], uint64(cost))
 						metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
 					}
 				}
@@ -192,13 +193,14 @@ func (c *clientConn) getBackendConn(cluster *backend.Cluster,bindFlag bool) (co 
 					co.SetNoDelayTrue()
 				}
 			} else {
+				dbtype := co.GetDbType()
 				if co.IsProxySelf() {
 					atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
 					metrics.QueriesCounter.WithLabelValues(backend.TiDBForTP).Inc()
 				} else {
-					dbtype := co.GetDbType()
 					if dbtype == backend.TiDBForTP || dbtype == backend.TiDBForAP {
 						atomic.AddInt64(&cluster.BackendPools[dbtype].Costs, cost)
+						atomic.AddUint64(&cluster.BackendPools[dbtype].TotalCost[backend.CurCost], uint64(cost))
 						metrics.QueriesCounter.WithLabelValues(dbtype).Inc()
 					}
 				}

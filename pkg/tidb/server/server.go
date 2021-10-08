@@ -558,6 +558,7 @@ func (s *Server) CheckClusterSilence() {
 			//}
 
 		} else {
+			count = 0
 			if s.cluster.ProxyNode.ProxyAsCompute && len(tppool.Tidbs) == 1 {
 				scaleReq := &scalepb.ScaleRequest{
 					Clustername: s.cfg.Proxycfg.Cluster.ClusterName,
