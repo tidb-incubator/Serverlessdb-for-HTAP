@@ -270,7 +270,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 	if !conn.IsProxySelf() {
 		switch tidbtext.s.(type) {
 		case *ast.BeginStmt:
-			err = cc.handleBegin()
+			err = cc.initMetrics()
 			//fmt.Println("========handleStmtExecute begin2=========",conn,cc.txConn,cc.prepareConn)
 			return err
 		case *ast.CommitStmt:
@@ -309,6 +309,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 			cc.ctx.GetSessionVars().StmtCtx.AppendError(prevErr)
 		}
 		if err != nil {
+			fmt.Println("==============handleStmtExecute====================",err)
 			return err
 		}
 		switch tidbtext.s.(type) {
@@ -757,7 +758,8 @@ func (cc *clientConn) handleStmtClose(data []byte) (err error) {
 	stmtID := int(binary.LittleEndian.Uint32(data[0:4]))
 	stmt := cc.ctx.GetStatement(stmtID)
 	if stmt != nil {
-		err = cc.cleanPrePare(uint32(stmtID))
+		tidbtext, _ := stmt.(*TiDBStatement)
+		err = cc.cleanPrePare(tidbtext.tidbId)
 		if err != nil {
 			return
 		}

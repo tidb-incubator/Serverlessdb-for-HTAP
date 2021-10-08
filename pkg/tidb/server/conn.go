@@ -41,6 +41,7 @@ import (
 	"encoding/binary"
 	goerr "errors"
 	"fmt"
+	driver "github.com/pingcap/tidb/types/parser_driver"
 	//utilproxy "github.com/pingcap/tidb/proxy/util"
 	"io"
 	"net"
@@ -1896,6 +1897,56 @@ func (cc *clientConn) prefetchPointPlanKeys(ctx context.Context, stmts []ast.Stm
 	return pointPlans, nil
 }
 
+func (cc *clientConn) handleSetAutoCommit(val ast.ExprNode) error {
+	var flag int64
+	switch v := (val).(type) {
+	//case *ast.ValuesExpr,*ast.VariableExpr,*ast.DefaultExpr,*ast.RowExpr,*ast.BetweenExpr,*ast.CaseExpr,*ast.:
+	case *driver.ValueExpr:
+		//fmt.Printf("set val is %d \n",v.Datum.GetInt64())
+		flag=v.Datum.GetInt64()
+	default:
+		fmt.Println("error")
+	}
+
+	switch flag {
+	case 1:
+		//fmt.Printf("set autocommit is %d \n",1)
+		cc.ctx.GetSessionVars().SetStatusFlag(mysql.ServerStatusInTrans,false)
+		if co:=cc.txConn;co!=nil{
+			if e := co.SetAutoCommit(1); e != nil {
+				if cc.isPrepare() == false {
+					co.SetNoDelayFlase()
+					co.Close()
+				}
+				cc.txConn = nil
+				return fmt.Errorf("set autocommit error, %v", e)
+			}
+			if cc.isPrepare() == false {
+				co.SetNoDelayFlase()
+				co.Close()
+			}
+		}
+		cc.txConn = nil
+	}
+	return nil
+}
+//
+func (cc *clientConn) handleSet(stmt *ast.SetStmt, sql string) (err error) {
+	if cc.txConn == nil || cc.txConn.IsProxySelf() {
+		return
+	}
+	if len(stmt.Variables) != 1  {
+		return fmt.Errorf("must set one item once, not %s", sql)
+	}
+	k := string(stmt.Variables[0].Name)
+	//fmt.Printf("key is %s \n",k)
+	switch strings.ToUpper(k) {
+	case `AUTOCOMMIT`, `@@AUTOCOMMIT`, `@@SESSION.AUTOCOMMIT`:
+		err = cc.handleSetAutoCommit(stmt.Variables[0].Value)
+		return
+	}
+	return
+}
 // The first return value indicates whether the call of handleStmt has no side effect and can be retried.
 // Currently the first return value is used to fallback to TiKV when TiFlash is down.
 func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns []stmtctx.SQLWarn, lastStmt bool) (bool, error) {
@@ -1921,7 +1972,7 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 		//fmt.Println("========handleStmt begin1=========",cc.txConn,cc.prepareConn)
 		cc.ctx.GetSessionVars().SetInTxn(true)
 	}
-	conn, err := cc.getBackendConn(cc.server.cluster,cc.ctx.GetSessionVars().InTxn())
+	conn, err := cc.getBackendConn(cc.server.cluster,cc.ctx.GetSessionVars().InTxn()||!cc.ctx.GetSessionVars().IsAutocommit())
 	if err != nil {
 		fmt.Errorf("get backend conn failed: %s\n", err)
 		return false, err
@@ -1931,8 +1982,8 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 		if !conn.IsProxySelf() {
 			switch stmt.(type) {
 			case *ast.BeginStmt:
-				err = cc.handleBegin()
-				return false, err
+				err = cc.initMetrics()
+				return false,err
 			case *ast.CommitStmt:
 				err = cc.handleCommit()
 				return false, err
@@ -1978,6 +2029,8 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 		cc.commitInProxy()
 	case *ast.RollbackStmt:
 		cc.rollbackInProxy()
+	case *ast.SetStmt:
+		cc.handleSet(stmt.(*ast.SetStmt),stmt.Text())
 	}
 
 	if lastStmt {

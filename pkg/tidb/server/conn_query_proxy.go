@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/proxy/backend"
 	"github.com/pingcap/tidb/proxy/mysql"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"sync/atomic"
 )
 
@@ -74,10 +75,13 @@ func (c *clientConn) connSet(co *backend.BackendConn) (err error) {
 			c.dbname = ""
 			return
 		}
-		//fmt.Printf("c.charset is %s,c.collation is %d \n",c.charset,c.collation)
-		//if err = co.SetCharset(c.charset, c.collation); err != nil {
-		//	return
-		//}
+		charset,_ := variable.GetSessionOrGlobalSystemVar(c.ctx.GetSessionVars(), variable.CharacterSetConnection)
+		collation,_ := variable.GetSessionOrGlobalSystemVar(c.ctx.GetSessionVars(), variable.CollationConnection)
+
+		fmt.Printf("c.charset is %s,c.collation is %d \n",charset,mysql.CharsetIds[collation])
+		if err = co.SetCharset(charset, mysql.CharsetIds[collation]); err != nil {
+			return
+		}
 	}
 	return
 }
