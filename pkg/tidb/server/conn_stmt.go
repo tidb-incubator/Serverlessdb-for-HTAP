@@ -121,6 +121,11 @@ func (cc *clientConn) handleStmtPrepare(ctx context.Context, sql string) error {
 	if err != nil {
 		return err
 	}
+	//prepare default cost is 0
+	cc.ctx.GetSessionVars().Proxy.Cost = 0
+	defer func() {
+		cc.ctx.GetSessionVars().Proxy.Cost = 0
+	}()
 	cc.setPrepare()
 	conn,err := cc.getBackendConn(cc.server.cluster,true)
 	if err !=  nil {

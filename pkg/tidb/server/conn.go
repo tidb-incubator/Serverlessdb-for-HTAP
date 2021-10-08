@@ -924,10 +924,10 @@ func (cc*clientConn) ReleasePrepare(ctx context.Context) {
 	if cc.isPrepare() == true && cc.prepareConn != nil &&
 		cc.prepareConn.GetBindConn() {
 		stmts := cc.ctx.GetMapStatement()
-		for _, v := range stmts {
-			cc.prepareConn.ClosePrepare(v.tidbId)
-		}
 		if cc.prepareConn.Conn != nil {
+			for _, v := range stmts {
+				cc.prepareConn.ClosePrepare(v.tidbId)
+			}
 			cc.prepareConn.SetNoDelayFlase()
 		}
 	}

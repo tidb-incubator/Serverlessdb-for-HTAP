@@ -33,6 +33,7 @@ type Scale struct {
 	//for scale in
 	//allscaleinum    []float64
 	scalueincout    int
+	preFiveMinuteHashrate [5]float64
 	minscalinnum    float64
 	scaleInInterval int
 }
@@ -44,7 +45,7 @@ func (sl *Serverless) RestServerless(tidbType string) {
 }
 
 const (
-	CostOneTpCore float64 = 100000
+	CostOneTpCore float64 = 500000
 	CostOneApCore float64 = 2000000000
 )
 var ScalerClient scalepb.ScaleClient
@@ -100,12 +101,24 @@ func NewServerless(cfg *config.Config, srv *Server, count *Counter) (*Serverless
 
 func (sl *Serverless) CheckServerless() {
 	for tidbtype, pool := range sl.proxy.cluster.BackendPools {
-		needcore := sl.multiScales[tidbtype].GetNeedCores(pool.Costs, tidbtype)
+		var addCost int64
+		if tidbtype == backend.TiDBForTP {
+			if pool.TotalCost[backend.LastCost] <= pool.TotalCost[backend.CurCost] {
+				addCost = int64(pool.TotalCost[backend.CurCost] - pool.TotalCost[backend.LastCost])
+			} else {
+				addCost = int64(pool.TotalCost[backend.CurCost])
+			}
+			pool.TotalCost[backend.LastCost] = pool.TotalCost[backend.CurCost]
+		} else {
+			addCost = pool.Costs
+		}
+		needcore := sl.multiScales[tidbtype].GetNeedCores(addCost, tidbtype)
 		currentcore := sl.GetCurrentCores(tidbtype)
 		if needcore == currentcore {
 			continue
 		}
 		if needcore > currentcore {
+			fmt.Println("CheckServerless scaleout======",tidbtype,pool.Costs,addCost,currentcore,needcore)
 			sl.multiScales[tidbtype].scaleout(currentcore, needcore, tidbtype)
 		} else {
 			sl.scalein(currentcore, needcore, tidbtype)
@@ -123,14 +136,39 @@ func (sl *Scale) SetLastChange(diff float64) {
 	sl.lastchange = diff
 }
 
+func (sl*Scale)savePreFiveHashate(needcore float64) float64 {
+	if sl.scaleInInterval == 0 {
+		sl.scaleInInterval = 1
+	}
+	length := len(sl.preFiveMinuteHashrate)
+	if sl.scaleInInterval < length {
+		length = sl.scaleInInterval
+	}
+	index := int(math.Ceil(float64(sl.scalueincout)/60))%length
+	if  sl.scalueincout % 60 == 0 {
+		sl.preFiveMinuteHashrate[index] = needcore
+	}
+	if needcore > sl.preFiveMinuteHashrate[index] {
+		sl.preFiveMinuteHashrate[index] = needcore
+	}
+	var max float64
+	for i:=0;i<length;i++ {
+		if max < sl.preFiveMinuteHashrate[i] {
+			max = sl.preFiveMinuteHashrate[i]
+		}
+	}
+	return max
+}
+
 func (sl *Scale) SetScalein(diffcores, needcore float64, tidbtype string) {
 	sl.scalueincout++
 
 	if diffcores < sl.minscalinnum {
 		sl.minscalinnum = diffcores
 	}
-
-	if sl.scalueincout==sl.scaleInInterval*60{
+	needcore = sl.savePreFiveHashate(needcore)
+	fmt.Println("CheckServerless scalein======",tidbtype,needcore)
+	if sl.scalueincout > sl.scaleInInterval*60{
 		fmt.Printf("send scale in ")
 		req2 := &scalepb.AutoScaleRequest{
 			Clustername: ClusterName,

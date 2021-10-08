@@ -165,6 +165,7 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64,bindFlag bool
 				atomic.AddInt64(&cluster.ProxyNode.ProxyCost, cost)
 			} else {
 				atomic.AddInt64(&pool.Costs, cost)
+				atomic.AddUint64(&pool.TotalCost[CurCost],uint64(cost))
 			}
 			return db, err
 		}
@@ -204,6 +205,7 @@ func (cluster *Cluster) GetNextTidb(lbIndicator string, cost int64,bindFlag bool
 		}
 		pool.Unlock()
 		atomic.AddInt64(&pool.Costs, cost)
+		atomic.AddUint64(&pool.TotalCost[CurCost],uint64(cost))
 		return db, err
 	}
 	return db, err

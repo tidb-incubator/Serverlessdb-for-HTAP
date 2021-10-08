@@ -469,7 +469,7 @@ func (s *Server) DeleteOneTidb(w http.ResponseWriter, req *http.Request) {
 	err = s.DeleteTidb(args.Cluster, args.Addr, args.TidbType)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		logutil.BgLogger().Error("DeleteTidb Request failed", zap.Error(err))
+		logutil.BgLogger().Error("DeleteTidb Request failed "+args.Addr+ " " +args.TidbType,zap.Error(err))
 		return
 	}
 	//s.proxy.Resetserverless()
