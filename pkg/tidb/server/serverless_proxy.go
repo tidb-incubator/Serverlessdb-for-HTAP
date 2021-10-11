@@ -45,7 +45,7 @@ func (sl *Serverless) RestServerless(tidbType string) {
 }
 
 const (
-	CostOneTpCore float64 = 500000
+	CostOneTpCore float64 = 1000000
 	CostOneApCore float64 = 2000000000
 )
 var ScalerClient scalepb.ScaleClient
@@ -118,7 +118,7 @@ func (sl *Serverless) CheckServerless() {
 			continue
 		}
 		if needcore > currentcore {
-			fmt.Println("CheckServerless scaleout======",tidbtype,pool.Costs,addCost,currentcore,needcore)
+			fmt.Println("CheckServerless scaleout======",tidbtype,pool.Costs,addCost,pool.TotalCost[backend.LastCost],currentcore,needcore)
 			sl.multiScales[tidbtype].scaleout(currentcore, needcore, tidbtype)
 		} else {
 			sl.scalein(currentcore, needcore, tidbtype)
@@ -218,7 +218,7 @@ func (sl *Serverless) scalein(currentcore, needcore float64, tidbType string) {
 func (sl *Scale) scaleout(currentcore, needcore float64, tidbtype string) {
 	sl.resetscalein()
 
-	difference := needcore - currentcore
+	//difference := needcore - currentcore
 	req := &scalepb.AutoScaleRequest{
 		Clustername: ClusterName,
 		Namespace: NameSpace,
@@ -228,18 +228,22 @@ func (sl *Scale) scaleout(currentcore, needcore float64, tidbtype string) {
 		Scaletype: tidbtype,
 	}
 
-	if (difference == sl.lastchange && time.Now().Unix()-sl.GetlastSend() > int64(sl.resendForScaleOut)) || difference != sl.lastchange {
+	//if (difference == sl.lastchange && time.Now().Unix()-sl.GetlastSend() > int64(sl.resendForScaleOut)) || difference != sl.lastchange {
 		fmt.Printf("scal out current %d,needcore is %d \n", currentcore, needcore)
 		ScalerClient.AutoScalerCluster(context.Background(),req)
-		sl.SetLastChange(difference)
-	}
+		//sl.SetLastChange(difference)
+	//}
 
 }
 
 func (sl *Serverless) GetCurrentCores(tidbType string) float64 {
 	tws := sl.proxy.cluster.BackendPools[tidbType].TidbsWeights
+	tidbs := sl.proxy.cluster.BackendPools[tidbType].Tidbs
 	var currentcores float64
-	for _, tw := range tws {
+	for index, tw := range tws {
+		if tidbs[index].Self {
+			continue
+		}
 		currentcores = currentcores + float64(tw)
 	}
 	return currentcores
