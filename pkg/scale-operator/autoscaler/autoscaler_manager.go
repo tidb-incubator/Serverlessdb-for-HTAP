@@ -142,8 +142,7 @@ func (am *AutoScalerManager) ScalerBaseOnMidWareTP(sldb *sldbv1.ServerlessDB) (b
 	} else {
 		//正常扩缩
 		if v.ScalerNeedCore > tclus.NewHashRate {
-			if utils.FEqual(tclus.NewHashRate, 0.5) == true ||
-				utils.FEqual(tclus.NewHashRate, 1.0) == true {
+			if utils.FEqual(tclus.NewHashRate, 0.5) == true {
 				firstSucess = true
 				tclus.NewHashRate = math.Ceil(v.ScalerNeedCore) * 5.0
 			} else {

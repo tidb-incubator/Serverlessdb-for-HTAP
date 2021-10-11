@@ -2,8 +2,13 @@ package pod
 
 import (
 	"crypto/tls"
+	"fmt"
 	"github.com/kirinlabs/HttpRequest"
 	admission "k8s.io/api/admission/v1beta1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog"
 )
 
@@ -57,7 +62,7 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(payload *admitPayload) *admis
 	//add predelete tidb label.
 	pod := payload.pod
 	pod.Labels[podPreDelete] = "true"
-	newpod, err := pc.kubeCli.CoreV1().Pods(pod.Namespace).Update(pod)
+	err := pc.updatePodLabel(pod)
 	if err != nil {
 		klog.Errorf("[%s/%s]pod update predelete label failed, cannot admit to delete.\n", payload.pod.Namespace, payload.pod.Name)
 		adminresp.Allowed = false
@@ -79,10 +84,10 @@ func (pc *PodAdmissionControl) admitDeleteTiDBPods(payload *admitPayload) *admis
 		klog.Infof("[%s/%s] delete pod failed: %s, but admit to delete.\n", payload.pod.Namespace, payload.pod.Name, err)
 	}
 
-	newpod.Labels[podForceDelete] = "true"
-	_, err = pc.kubeCli.CoreV1().Pods(newpod.Namespace).Update(newpod)
+	pod.Labels[podForceDelete] = "true"
+	err = pc.updatePodLabel(pod)
 	if err != nil {
-		klog.Errorf("[%s/%s]pod update forcedelete label failed, but admit to delete: %s\n", newpod.Namespace, newpod.Name, err)
+		klog.Errorf("[%s/%s]pod update forcedelete label failed, but admit to delete: %s\n", pod.Namespace, pod.Name, err)
 	}
 
 	//adminresp.Allowed = false
@@ -96,4 +101,30 @@ func newRequest() *HttpRequest.Request {
 	req.SetHeaders(map[string]string{"Content-Type": "application/json"})
 	req.SetTLSClient(&tls.Config{InsecureSkipVerify: true})
 	return req
+}
+
+
+func (pc *PodAdmissionControl) updatePodLabel(newpod *v1.Pod) error {
+	oldPod := newpod.DeepCopy()
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var updateErr error
+		_, updateErr = pc.kubeCli.CoreV1().Pods(newpod.Namespace).Update(newpod)
+		if updateErr == nil {
+			klog.Infof("Pod: [%s/%s] updated successfully", newpod.Namespace, newpod.Name)
+			return nil
+		}
+		klog.V(4).Infof("failed to update Pod: [%s/%s], error: %v", newpod.Namespace, newpod.Name, updateErr)
+		if updated, err := pc.kubeCli.CoreV1().Pods(newpod.Namespace).Get(newpod.Name, metav1.GetOptions{}); err == nil {
+			newpod = updated.DeepCopy()
+			newpod.Labels = oldPod.Labels
+		} else {
+			utilruntime.HandleError(fmt.Errorf("error getting updated Pod %s/%s: %v", newpod.Namespace, newpod.Name, err))
+		}
+		return updateErr
+	})
+	if err != nil {
+		klog.Errorf("failed to update Pod: [%s/%s], error: %v", newpod.Namespace, newpod.Name, err)
+	}
+	return err
 }
