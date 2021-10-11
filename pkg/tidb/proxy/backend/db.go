@@ -104,25 +104,34 @@ func Open(addr string, user string, password string, dbName string,weight float6
 	db.idleConns = make(chan *Conn, db.maxConnNum)
 	db.cacheConns = make(chan *Conn, db.maxConnNum)
 	atomic.StoreInt32(&(db.state), Unknown)
-
+	wg := &sync.WaitGroup{}
+	wg.Add(db.InitConnNum)
+	var cErr error
 	for i := 0; i < db.maxConnNum; i++ {
 		if i < db.InitConnNum {
-			conn, err := db.newConn()
-
-			if err != nil {
-				db.Close()
-				return nil, err
-			}
-
-			db.cacheConns <- conn
-			atomic.AddInt64(&db.pushConnCount, 1)
-			//atomic.AddInt64(&db.usingConnsCount, -1)
+			go func() {
+				conn, err := db.newConn()
+				if err != nil {
+					cErr = err
+					wg.Done()
+					return
+				}
+				db.cacheConns <- conn
+				atomic.AddInt64(&db.pushConnCount, 1)
+				wg.Done()
+				//atomic.AddInt64(&db.usingConnsCount, -1)
+			}()
 		} else {
 			conn := new(Conn)
 			db.idleConns <- conn
 			atomic.AddInt64(&db.pushConnCount, 1)
 			//atomic.AddInt64(&db.usingConnsCount, -1)
 		}
+	}
+	wg.Wait()
+	if cErr != nil {
+		db.Close()
+		return nil,cErr
 	}
 	db.SetLastPing()
 	atomic.StoreInt32(&(db.state), Up)
