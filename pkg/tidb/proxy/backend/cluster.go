@@ -25,7 +25,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
+	"github.com/pingcap/tidb/server"
 	"github.com/pingcap/tidb/proxy/config"
 	"github.com/pingcap/tidb/proxy/core/errors"
 	"github.com/pingcap/tidb/proxy/core/golog"
@@ -240,58 +240,72 @@ func GetOnePod(podName, namespace string) *v1.Pod {
 	return pod
 }
 
-func (cluster *Cluster) AddTidb(addr, tidbType string) error {
+func (cluster *Cluster) AddTidb(allNewTidb []*server.NewTidb) error {
 	var db *DB
 	var weight float64
 	var err error
-	if len(addr) == 0 {
-		return errors.ErrAddressNull
-	}
-	pool := cluster.BackendPools[tidbType]
+	pool := cluster.BackendPools[allNewTidb[0].TidbType]
 	pool.Lock()
 	defer pool.Unlock()
-	for _, v := range pool.Tidbs {
-		if strings.Split(v.addr, WeightSplit)[0] == strings.Split(addr, WeightSplit)[0] {
-			return errors.ErrTidbExist
+	var needAdd []*server.NewTidb
+	for _, j :=range allNewTidb {
+		flag := true
+		for _, v := range pool.Tidbs {
+			if strings.Split(v.addr, WeightSplit)[0] == strings.Split(j.Addr, WeightSplit)[0] || len(j.Addr) == 0{
+				golog.Error("Cluster", "AddTidb", "exsit tidb or addressNull", 0,
+					"tidb.Addr", j.Addr)
+				flag = false
+				break
+			}
 		}
-	}
-	//lock check pod status,predelete filter
-	if strings.Split(addr, WeightSplit)[0] != "self" {
-		podArr := strings.Split(addr, ".")
-		podName := podArr[0]
-		podNs := podArr[2]
-		nsArr := strings.Split(podNs, ":")
-		ns := nsArr[0]
-		pod := GetOnePod(podName, ns)
-		if pod == nil {
-			return nil
+		if flag == true {
+			needAdd = append(needAdd,j)
 		}
 	}
 
-	addrAndWeight := strings.Split(addr, WeightSplit)
-	if len(addrAndWeight) == 2 {
-		weight, err = strconv.ParseFloat(addrAndWeight[1], 64)
-		if err != nil {
+	if len(needAdd) == 0 {
+		return errors.ErrTidbExist
+	}
+
+	for _,tidb := range needAdd {
+		//lock check pod status,predelete filter
+		if strings.Split(tidb.Addr, WeightSplit)[0] != "self" {
+			podArr := strings.Split(tidb.Addr, ".")
+			podName := podArr[0]
+			podNs := podArr[2]
+			nsArr := strings.Split(podNs, ":")
+			ns := nsArr[0]
+			pod := GetOnePod(podName, ns)
+			if pod == nil {
+				return nil
+			}
+		}
+
+		addrAndWeight := strings.Split(tidb.Addr, WeightSplit)
+		if len(addrAndWeight) == 2 {
+			weight, err = strconv.ParseFloat(addrAndWeight[1], 64)
+			if err != nil {
+				return err
+			}
+		} else {
+			weight = 1
+		}
+		if addrAndWeight[0] == "self" {
+			db = &DB{
+				addr: addrAndWeight[0],
+				Self: true,
+			}
+			cluster.ProxyNode.ProxyAsCompute = true
+		} else if db, err = cluster.OpenDB(addrAndWeight[0], weight); err != nil {
 			return err
 		}
-	} else {
-		weight = 1
-	}
-	if addrAndWeight[0] == "self" {
-		db = &DB{
-			addr: addrAndWeight[0],
-			Self: true,
-		}
-		cluster.ProxyNode.ProxyAsCompute = true
-	} else if db, err = cluster.OpenDB(addrAndWeight[0], weight); err != nil {
-		return err
-	}
-	pool.TidbsWeights = append(pool.TidbsWeights, weight)
-	db.dbType = tidbType
-	pool.Tidbs = append(pool.Tidbs, db)
-	if tidbType == TiDBForTP && cluster.ProxyNode.ProxyAsCompute && addrAndWeight[0] != "self" {
-		if pool.RebalanceWeight(math.Ceil(weight / WeightPerHalfProxy)) {
-			cluster.ProxyNode.ProxyAsCompute = false
+		pool.TidbsWeights = append(pool.TidbsWeights, weight)
+		db.dbType = tidb.TidbType
+		pool.Tidbs = append(pool.Tidbs, db)
+		if tidb.TidbType == TiDBForTP && cluster.ProxyNode.ProxyAsCompute && addrAndWeight[0] != "self" {
+			if pool.RebalanceWeight(math.Ceil(weight / WeightPerHalfProxy)) {
+				cluster.ProxyNode.ProxyAsCompute = false
+			}
 		}
 	}
 	for i:=0;i<len(pool.Tidbs);i++ {

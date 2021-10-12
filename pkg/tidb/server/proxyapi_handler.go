@@ -45,9 +45,9 @@ func (s *Server) DeleteTidb(cluster, addr, tidbType string) error {
 	return nil
 }
 
-func (s *Server) AddNewTidb(addr, tidbType string) error {
+func (s *Server) AddNewTidb(allNewTidb []*NewTidb) error {
 
-	if err := s.cluster.AddTidb(addr, tidbType); err != nil {
+	if err := s.cluster.AddTidb(allNewTidb); err != nil {
 		return err
 	}
 	return nil
@@ -191,13 +191,13 @@ func (s *Server) FindNewTidb(clusterName, ns, tidbType string) error {
 		golog.Error("server", "AddTidb", "AddTidb fail", 0, "error", err)
 		return err
 	}
-	for _, new := range allNewTidb {
-		err = s.AddNewTidb(new.Addr, new.TidbType)
-		if err != nil {
-			golog.Error("server", "AddTidb", "AddTidb fail", 0, "error", err)
-			return err
-		}
+	err = s.AddNewTidb(allNewTidb)
+	if err != nil {
+		golog.Error("server", "AddTidb", "AddTidb fail", 0, "error", err)
+		return err
 	}
+
+
 	return nil
 }
 
