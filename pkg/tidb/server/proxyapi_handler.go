@@ -198,13 +198,6 @@ func (s *Server) FindNewTidb(clusterName, ns, tidbType string) error {
 	}
 
 
-	//for _, new := range allNewTidb {
-	//	err = s.AddNewTidb(new.Addr, new.TidbType)
-	//	if err != nil {
-	//		golog.Error("server", "AddTidb", "AddTidb fail", 0, "error", err)
-	//		return err
-	//	}
-	//}
 	return nil
 }
 
