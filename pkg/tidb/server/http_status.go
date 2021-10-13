@@ -439,6 +439,7 @@ func (s *Server) AddTidb(w http.ResponseWriter, req *http.Request) {
 		NameSpace string `json:"namespace"`
 		TidbType  string `json:"tidbtype"`
 	}{}
+	fmt.Println("call AddTidb api: ", args)
 	err := json.NewDecoder(req.Body).Decode(&args)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

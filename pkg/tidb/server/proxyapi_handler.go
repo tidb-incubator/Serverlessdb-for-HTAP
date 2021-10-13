@@ -26,11 +26,11 @@ const (
 
 
 
-type NewTidb struct {
-	Cluster  string `json:"cluster"`
-	Addr     string `json:"addr"`
-	TidbType string `json:"tidbtype"`
-}
+//type NewTidb struct {
+//	Cluster  string `json:"cluster"`
+//	Addr     string `json:"addr"`
+//	TidbType string `json:"tidbtype"`
+//}
 
 func (s *Server) GetAllClusters() *backend.Cluster {
 	return s.cluster
@@ -45,7 +45,7 @@ func (s *Server) DeleteTidb(cluster, addr, tidbType string) error {
 	return nil
 }
 
-func (s *Server) AddNewTidb(allNewTidb []*NewTidb) error {
+func (s *Server) AddNewTidb(allNewTidb []*backend.NewTidb) error {
 
 	if err := s.cluster.AddTidb(allNewTidb); err != nil {
 		return err
@@ -140,8 +140,8 @@ func getFloatCpu(cpu string) string {
 	return cpustr
 }
 
-func (s *Server) NewOne(podList *v1.PodList, tidbType string) []*NewTidb {
-	allNew := make([]*NewTidb, 0)
+func (s *Server) NewOne(podList *v1.PodList, tidbType string) []*backend.NewTidb {
+	allNew := make([]*backend.NewTidb, 0)
 	for _, pod := range podList.Items {
 		if pod.DeletionTimestamp != nil {
 			continue
@@ -155,7 +155,7 @@ func (s *Server) NewOne(podList *v1.PodList, tidbType string) []*NewTidb {
 				}
 			}
 			if flag == false {
-				one := &NewTidb{}
+				one := &backend.NewTidb{}
 				tcName := pod.Labels[InstanceLabelKey]
 				cpuNum := ""
 				for _, v1 := range pod.Spec.Containers {

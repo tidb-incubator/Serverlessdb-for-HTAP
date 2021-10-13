@@ -923,12 +923,13 @@ func (cc *clientConn) initConnect(ctx context.Context) error {
 func (cc*clientConn) ReleasePrepare(ctx context.Context) {
 	if cc.isPrepare() == true && cc.prepareConn != nil &&
 		cc.prepareConn.GetBindConn() {
-		stmts := cc.ctx.GetMapStatement()
+		//stmts := cc.ctx.GetMapStatement()
 		if cc.prepareConn.Conn != nil {
-			for _, v := range stmts {
-				cc.prepareConn.ClosePrepare(v.tidbId)
-			}
-			cc.prepareConn.SetNoDelayFlase()
+			cc.prepareConn.SetPacketErr(fmt.Errorf("ReleasePrepare connection"))
+			//for _, v := range stmts {
+			//	cc.prepareConn.ClosePrepare(v.tidbId)
+			//}
+			//cc.prepareConn.SetNoDelayFlase()
 		}
 	}
 	if cc.txConn != nil && !cc.txConn.IsProxySelf()  {

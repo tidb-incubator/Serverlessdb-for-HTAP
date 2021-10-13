@@ -77,6 +77,11 @@ func (cluster *Pool) InitBalancer() {
 	var sum int
 	cluster.LastTidbIndex = 0
 
+	if len(cluster.TidbsWeights) == 0 {
+		fmt.Println("pool has no tidb")
+		return
+	}
+
 	sws := make([]int, 0, len(cluster.TidbsWeights))
 
 	for i := 0; i < len(cluster.TidbsWeights); i++ {
