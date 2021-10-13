@@ -78,11 +78,12 @@ func Open(addr string, user string, password string, dbName string,weight float6
 		db.maxConnNum = 256
 		db.InitConnNum = 64
 	} else {
-		if weight < 1.0 {
-			conum = 512
-		} else {
-			conum = int(weight * 256)
-		}
+		//if weight < 1.0 {
+		//	conum = 512
+		//} else {
+		//	conum = int(128)
+		//}
+		conum = 128
 		if conum> DefaultMaxConnNum{
 			db.maxConnNum = DefaultMaxConnNum*2
 			db.InitConnNum = DefaultMaxConnNum
@@ -103,6 +104,7 @@ func Open(addr string, user string, password string, dbName string,weight float6
 	db.checkConn, err = db.newConn()
 	if err != nil {
 		db.Close()
+		//fmt.Println("check conn err is ", err)
 		return nil, err
 	}
 
@@ -118,6 +120,7 @@ func Open(addr string, user string, password string, dbName string,weight float6
 				conn, err := db.newConn()
 				if err != nil {
 					cErr = err
+					//fmt.Println("make conn err is ", err)
 					wg.Done()
 					return
 				}

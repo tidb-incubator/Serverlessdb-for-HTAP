@@ -51,16 +51,18 @@ func (c *clientConn) handlePrepare(ctx context.Context,conn *backend.BackendConn
 	if err != nil {
 		return err
 	}
-
 	if rs.Resultset != nil {
 		err = c.writeResultsetForProxy(ctx, rs.Resultset)
 	} else {
+		//fmt.Println("stmt select is ", stmtctx.InSelectStmt, stmtctx.InDeleteStmt, stmtctx.InInsertStmt, stmtctx.InUpdateStmt)
 		if stmtctx.InSelectStmt {
 			selectstmt, _ := planstmt.PreparedAst.Stmt.(*ast.SelectStmt)
 			r := c.newEmptyResultsetAst(selectstmt)
 			err = c.writeResultsetForProxy(ctx, r)
 		}
 		if stmtctx.InDeleteStmt || stmtctx.InInsertStmt || stmtctx.InUpdateStmt {
+			c.ctx.Session.GetSessionVars().StmtCtx.AddAffectedRows(rs.AffectedRows)
+			c.ctx.Session.GetSessionVars().StmtCtx.InsertID = rs.InsertId
 			err = c.writeOK(ctx)
 		}
 	}
