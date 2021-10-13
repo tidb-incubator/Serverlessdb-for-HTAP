@@ -114,11 +114,12 @@ func (sl *Serverless) CheckServerless() {
 		}
 		needcore := sl.multiScales[tidbtype].GetNeedCores(addCost, tidbtype)
 		currentcore := sl.GetCurrentCores(tidbtype)
+		fmt.Println("CheckServerless ======",tidbtype,pool.Costs,addCost,pool.TotalCost[backend.LastCost],currentcore,needcore)
 		if needcore == currentcore {
 			continue
 		}
 		if needcore > currentcore {
-			fmt.Println("CheckServerless scaleout======",tidbtype,pool.Costs,addCost,pool.TotalCost[backend.LastCost],currentcore,needcore)
+			//fmt.Println("CheckServerless scaleout======",tidbtype,pool.Costs,addCost,pool.TotalCost[backend.LastCost],currentcore,needcore)
 			sl.multiScales[tidbtype].scaleout(currentcore, needcore, tidbtype)
 		} else {
 			sl.scalein(currentcore, needcore, tidbtype)

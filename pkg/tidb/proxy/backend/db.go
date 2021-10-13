@@ -65,7 +65,7 @@ type DB struct {
 	dbType string
 }
 
-func Open(addr string, user string, password string, dbName string,weight float64) (*DB, error) {
+func Open(addr string, user string, password string, dbName string,weight float64, tidbtype string) (*DB, error) {
 	var err error
 	db := new(DB)
 	db.addr = addr
@@ -74,24 +74,29 @@ func Open(addr string, user string, password string, dbName string,weight float6
 	db.db = dbName
 
 	var conum int
-	if weight < 1.0 {
-		conum = 512
+	if tidbtype == TiDBForAP {
+		db.maxConnNum = 256
+		db.InitConnNum = 64
 	} else {
-		conum = int(weight * 256)
-	}
-	if conum> DefaultMaxConnNum{
-		db.maxConnNum = DefaultMaxConnNum*2
-		db.InitConnNum = DefaultMaxConnNum
-	}else{
-		max := conum * 10
-		if max > (DefaultMaxConnNum*2) {
-			max = DefaultMaxConnNum * 2
+		if weight < 1.0 {
+			conum = 512
+		} else {
+			conum = int(weight * 256)
 		}
-		db.maxConnNum = max
-		if conum > DefaultMaxConnNum {
-			conum = DefaultMaxConnNum
+		if conum> DefaultMaxConnNum{
+			db.maxConnNum = DefaultMaxConnNum*2
+			db.InitConnNum = DefaultMaxConnNum
+		}else{
+			max := conum * 10
+			if max > (DefaultMaxConnNum*2) {
+				max = DefaultMaxConnNum * 2
+			}
+			db.maxConnNum = max
+			if conum > DefaultMaxConnNum {
+				conum = DefaultMaxConnNum
+			}
+			db.InitConnNum = conum
 		}
-		db.InitConnNum = conum
 	}
 
 	//check connection
@@ -497,4 +502,10 @@ func (db *DB) SetLastPing() {
 
 func (db *DB) GetLastPing() int64 {
 	return db.lastPing
+}
+
+func (p *BackendConn) SetPacketErr(err error) {
+	if p != nil && p.Conn != nil {
+		p.Conn.pkgErr = err
+	}
 }

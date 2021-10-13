@@ -25,7 +25,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"github.com/pingcap/tidb/server"
+
 	"github.com/pingcap/tidb/proxy/config"
 	"github.com/pingcap/tidb/proxy/core/errors"
 	"github.com/pingcap/tidb/proxy/core/golog"
@@ -72,6 +72,12 @@ type Pool struct {
 type Proxy struct {
 	ProxyAsCompute bool
 	ProxyCost      int64
+}
+
+type NewTidb struct {
+	Cluster  string `json:"cluster"`
+	Addr     string `json:"addr"`
+	TidbType string `json:"tidbtype"`
 }
 
 func (cluster *Cluster) CheckCluster() {
@@ -188,7 +194,7 @@ func (cluster *Cluster) checkTidbs() {
 	if cluster.BackendPools == nil {
 		return
 	}
-	for _, pool := range cluster.BackendPools {
+	for tidbtype, pool := range cluster.BackendPools {
 		pool.RLock()
 		if pool.Tidbs == nil {
 			pool.RUnlock()
@@ -207,7 +213,7 @@ func (cluster *Cluster) checkTidbs() {
 			} else {
 				if atomic.LoadInt32(&(Tidbs[i].state)) == Down {
 					golog.Info("Node", "checkTidb", "Tidb up", 0, "db.Addr", Tidbs[i].Addr())
-					pool.UpTidb(Tidbs[i].addr, cluster.Cfg.User, cluster.Cfg.Password)
+					pool.UpTidb(Tidbs[i].addr, cluster.Cfg.User, cluster.Cfg.Password,tidbtype)
 				}
 				Tidbs[i].SetLastPing()
 				if atomic.LoadInt32(&(Tidbs[i].state)) != ManualDown {
@@ -240,14 +246,14 @@ func GetOnePod(podName, namespace string) *v1.Pod {
 	return pod
 }
 
-func (cluster *Cluster) AddTidb(allNewTidb []*server.NewTidb) error {
+func (cluster *Cluster) AddTidb(allNewTidb []*NewTidb) error {
 	var db *DB
 	var weight float64
 	var err error
 	pool := cluster.BackendPools[allNewTidb[0].TidbType]
 	pool.Lock()
 	defer pool.Unlock()
-	var needAdd []*server.NewTidb
+	var needAdd []*NewTidb
 	for _, j :=range allNewTidb {
 		flag := true
 		for _, v := range pool.Tidbs {
@@ -267,46 +273,70 @@ func (cluster *Cluster) AddTidb(allNewTidb []*server.NewTidb) error {
 		return errors.ErrTidbExist
 	}
 
-	for _,tidb := range needAdd {
-		//lock check pod status,predelete filter
-		if strings.Split(tidb.Addr, WeightSplit)[0] != "self" {
-			podArr := strings.Split(tidb.Addr, ".")
-			podName := podArr[0]
-			podNs := podArr[2]
-			nsArr := strings.Split(podNs, ":")
-			ns := nsArr[0]
-			pod := GetOnePod(podName, ns)
-			if pod == nil {
-				return nil
-			}
-		}
 
-		addrAndWeight := strings.Split(tidb.Addr, WeightSplit)
-		if len(addrAndWeight) == 2 {
-			weight, err = strconv.ParseFloat(addrAndWeight[1], 64)
-			if err != nil {
-				return err
+	wg := &sync.WaitGroup{}
+	wg.Add(len(needAdd))
+	fmt.Println("need add tidbs counts is : ", len(needAdd))
+	var podCount int64
+	for _,v := range needAdd {
+		tidb := v
+		fmt.Println("need add tidb is ", v.Addr, time.Now())
+		go func()  {
+			//lock check pod status,predelete filter
+			if strings.Split(tidb.Addr, WeightSplit)[0] != "self" {
+				podArr := strings.Split(tidb.Addr, ".")
+				podName := podArr[0]
+				podNs := podArr[2]
+				nsArr := strings.Split(podNs, ":")
+				ns := nsArr[0]
+				pod := GetOnePod(podName, ns)
+				if pod == nil {
+					fmt.Println("get pod is nil.")
+					wg.Done()
+					return
+				}
 			}
-		} else {
-			weight = 1
-		}
-		if addrAndWeight[0] == "self" {
-			db = &DB{
-				addr: addrAndWeight[0],
-				Self: true,
+
+			addrAndWeight := strings.Split(tidb.Addr, WeightSplit)
+			if len(addrAndWeight) == 2 {
+				weight, err = strconv.ParseFloat(addrAndWeight[1], 64)
+				if err != nil {
+					fmt.Println("parse float failed: ", addrAndWeight, err)
+					wg.Done()
+					return
+				}
+			} else {
+				weight = 1
 			}
-			cluster.ProxyNode.ProxyAsCompute = true
-		} else if db, err = cluster.OpenDB(addrAndWeight[0], weight); err != nil {
-			return err
-		}
-		pool.TidbsWeights = append(pool.TidbsWeights, weight)
-		db.dbType = tidb.TidbType
-		pool.Tidbs = append(pool.Tidbs, db)
-		if tidb.TidbType == TiDBForTP && cluster.ProxyNode.ProxyAsCompute && addrAndWeight[0] != "self" {
-			if pool.RebalanceWeight(math.Ceil(weight / WeightPerHalfProxy)) {
-				cluster.ProxyNode.ProxyAsCompute = false
+			if addrAndWeight[0] == "self" {
+				db = &DB{
+					addr: addrAndWeight[0],
+					Self: true,
+				}
+				cluster.ProxyNode.ProxyAsCompute = true
+			} else if db, err = cluster.OpenDB(addrAndWeight[0], weight, tidb.TidbType); err != nil {
+				fmt.Println("open db failed:", addrAndWeight[0], err)
+				wg.Done()
+				return
 			}
-		}
+			pool.TidbsWeights = append(pool.TidbsWeights, weight)
+			db.dbType = tidb.TidbType
+			pool.Tidbs = append(pool.Tidbs, db)
+			if tidb.TidbType == TiDBForTP && cluster.ProxyNode.ProxyAsCompute && addrAndWeight[0] != "self" {
+				if pool.RebalanceWeight(math.Ceil(weight / WeightPerHalfProxy)) {
+					cluster.ProxyNode.ProxyAsCompute = false
+				}
+			}
+			atomic.AddInt64(&podCount, 1)
+			fmt.Println("end add tidb is ", tidb.Addr, time.Now())
+			wg.Done()
+			return
+		}()
+
+	}
+	wg.Wait()
+	if podCount == 0 {
+		return fmt.Errorf("no pod add into proxy.")
 	}
 	for i:=0;i<len(pool.Tidbs);i++ {
 		fmt.Println("=======db weight db self=======",pool.Tidbs[i].addr,pool.Tidbs[i].Self,pool.Tidbs[i].state)
@@ -413,12 +443,12 @@ func (cluster *Cluster) InitBalancerAfterDeleteTidb(addr, tidbType string) (*DB,
 	return he3db, nil
 }
 
-func (cluster *Cluster) OpenDB(addr string, weight float64) (*DB, error) {
-	db, err := Open(addr, cluster.Cfg.User, cluster.Cfg.Password, "", weight)
+func (cluster *Cluster) OpenDB(addr string, weight float64, tidbtype string) (*DB, error) {
+	db, err := Open(addr, cluster.Cfg.User, cluster.Cfg.Password, "", weight, tidbtype)
 	return db, err
 }
 
-func (cluster *Pool) UpDB(addr, user, passwd string) (*DB, error) {
+func (cluster *Pool) UpDB(addr, user, passwd, tidbtype string) (*DB, error) {
 	weight := 1.0
 	for i, db := range cluster.Tidbs {
 		if db.addr == addr {
@@ -427,7 +457,7 @@ func (cluster *Pool) UpDB(addr, user, passwd string) (*DB, error) {
 		}
 	}
 
-	db, err := Open(addr, user, passwd, "", weight)
+	db, err := Open(addr, user, passwd, "", weight, tidbtype)
 
 	if err != nil {
 		return nil, err
@@ -442,8 +472,8 @@ func (cluster *Pool) UpDB(addr, user, passwd string) (*DB, error) {
 	return db, nil
 }
 
-func (cluster *Pool) UpTidb(addr, user, passwd string) error {
-	db, err := cluster.UpDB(addr, user, passwd)
+func (cluster *Pool) UpTidb(addr, user, passwd, tidbtype string) error {
+	db, err := cluster.UpDB(addr, user, passwd, tidbtype)
 	if err != nil {
 		golog.Error("Node", "UpTidb", err.Error(), 0)
 	}
@@ -497,7 +527,8 @@ func (cluster *Cluster) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfi
 	TidbArray := strings.Split(Tidbs, TidbSplit)
 	count := len(TidbArray)
 	pool := cluster.BackendPools[dbType]
-
+	pool.Lock()
+	defer pool.Unlock()
 	//parse addr and weight
 	for i := 0; i < count; i++ {
 		addrAndWeight := strings.Split(TidbArray[i], WeightSplit)
@@ -509,7 +540,6 @@ func (cluster *Cluster) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfi
 		} else {
 			weight = 1
 		}
-		pool.TidbsWeights = append(pool.TidbsWeights, weight)
 		if addrAndWeight[0] == "self" {
 			db = &DB{
 				addr: addrAndWeight[0],
@@ -517,12 +547,14 @@ func (cluster *Cluster) ParseTidbs(Tidbs, dbType string, cfg config.ClusterConfi
 			}
 		} else {
 			sum += weight
-			if db, err = Open(addrAndWeight[0], cfg.User, cfg.Password, "", weight); err != nil {
+			if db, err = Open(addrAndWeight[0], cfg.User, cfg.Password, "", weight, dbType); err != nil {
+				fmt.Println("error is ", err)
 				continue
 			}
 		}
 
 		db.dbType = dbType
+		pool.TidbsWeights = append(pool.TidbsWeights, weight)
 		pool.Tidbs = append(pool.Tidbs, db)
 	}
 	if pool.RebalanceWeight(math.Ceil(sum / WeightPerHalfProxy)) {

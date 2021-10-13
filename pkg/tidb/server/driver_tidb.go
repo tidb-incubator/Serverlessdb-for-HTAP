@@ -71,6 +71,8 @@ type TiDBStatement struct {
 	sql         string
 	tidbId      uint32
 	columns     int
+	cost        float64
+	prepareCount    uint64
 }
 
 // ID implements PreparedStatement ID method.
