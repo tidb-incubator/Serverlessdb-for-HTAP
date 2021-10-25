@@ -118,15 +118,14 @@ func Open(addr string, user string, password string, dbName string,weight float6
 		if i < db.InitConnNum {
 			go func() {
 				conn, err := db.newConn()
+				defer wg.Done()
 				if err != nil {
 					cErr = err
 					//fmt.Println("make conn err is ", err)
-					wg.Done()
 					return
 				}
 				db.cacheConns <- conn
 				atomic.AddInt64(&db.pushConnCount, 1)
-				wg.Done()
 				//atomic.AddInt64(&db.usingConnsCount, -1)
 			}()
 		} else {
