@@ -85,7 +85,7 @@ func (cluster *Cluster) CheckCluster() {
 	//1 check connection alive
 
 	for cluster.Online {
-		cluster.checkTidbs()
+		//cluster.checkTidbs()
 		time.Sleep(16 * time.Second)
 	}
 }

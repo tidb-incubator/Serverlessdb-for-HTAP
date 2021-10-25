@@ -140,6 +140,10 @@ func (c *Conn) readPacket() ([]byte, error) {
 	return d, err
 }
 
+func (c *Conn) SetPacketErr(err error) {
+	c.pkgErr = err
+}
+
 func (c *Conn) writePacket(data []byte) error {
 	err := c.pkg.WritePacket(data)
 	c.pkgErr = err

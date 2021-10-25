@@ -266,6 +266,10 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 		//fmt.Println("========handleStmtExecute begin1=========",cc.txConn,cc.prepareConn)
 		cc.ctx.GetSessionVars().SetInTxn(true)
 	}
+	//prepare for tp
+	if cc.ctx.GetSessionVars().Proxy.Cost > 10000 {
+		cc.ctx.GetSessionVars().Proxy.Cost = 10000 
+	}
 	conn, err := cc.getBackendConn(cc.server.cluster,true)
 	if err != nil {
 		//fmt.Errorf("get backend conn failed: %s\n", err)

@@ -991,10 +991,7 @@ func (cc *clientConn) Run(ctx context.Context) {
 						if cc.isPrepare() == true && cc.prepareConn != nil &&
 							cc.prepareConn.GetBindConn() && cc.txConn == nil &&
 							cc.curVersion != pool.CurVersion && !cc.prepareConn.IsProxySelf() {
-							stmts := cc.ctx.GetMapStatement()
-							for _, v := range stmts {
-								cc.prepareConn.ClosePrepare(v.tidbId)
-							}
+							cc.prepareConn.SetPacketErr(fmt.Errorf("client problem"))
 							cc.prepareConn.SetNoDelayFlase()
 						}
 						if cc.prepareConn != nil && !cc.prepareConn.IsProxySelf() {
